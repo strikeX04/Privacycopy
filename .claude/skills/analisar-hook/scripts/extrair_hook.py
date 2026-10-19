@@ -35,7 +35,12 @@ def baixar(url, pasta):
     else:
         base = ["yt-dlp"]
     destino = pasta / "video.%(ext)s"
-    r = rodar(base + ["-f", "mp4/best", "--no-playlist", "-o", str(destino), url])
+    cmd = base + ["-f", "mp4/best", "--no-playlist", "-o", str(destino), url]
+    r = rodar(cmd)
+    if r.returncode != 0:
+        # TikTok e outros bloqueiam pedidos que não parecem de navegador.
+        # Com o curl_cffi instalado, o yt-dlp consegue se passar por um Chrome.
+        r = rodar(cmd[:-1] + ["--impersonate", "chrome", url])
     arquivos = sorted(pasta.glob("video.*"))
     if r.returncode != 0 or not arquivos:
         sys.exit(f"Não consegui baixar o vídeo do link.\n{r.stderr[-800:]}")
@@ -229,6 +234,10 @@ def main():
         palavras = [w for s in trans["segmentos"] for w in s["palavras"]]
         primeira = palavras[0]["t"] if palavras else None
         no_hook = " ".join(w["p"] for w in palavras if w["t"] < janela)
+        if trans["idioma"] not in ("pt", "en", "es") or (vol is not None and vol < -40):
+            L.append("- ATENÇÃO: idioma estranho ou começo muito baixo. Pode ser só música "
+                     "ou som em alta, e o Whisper inventa texto nesses casos. Confira com "
+                     "o usuário antes de usar esta fala.")
         L += [f"- Idioma: {trans['idioma']}",
               f"- Primeira palavra em: {primeira}s",
               f"- Falado dentro do hook (0-{janela:.0f}s): \"{no_hook}\"", "",

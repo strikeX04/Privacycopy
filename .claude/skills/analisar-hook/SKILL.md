@@ -35,7 +35,7 @@ Opções: `--segundos 6` (tamanho da janela do hook), `--modelo small` (Whisper;
 estiver lento, `medium` se a fala estiver ruim), `--idioma pt`.
 
 Dependências: `ffmpeg` (obrigatório), `pip install faster-whisper pillow numpy` para a fala e
-`pip install yt-dlp` para links. Se o Whisper não puder ser instalado ou baixar o modelo, o
+`pip install yt-dlp curl_cffi` para links (o curl_cffi deixa baixar do TikTok). Se o Whisper não puder ser instalado ou baixar o modelo, o
 script continua sem a fala. Nesse caso peça a fala ou a legenda ao usuário.
 
 O script imprime um relatório com duração, formato, cortes de cena, volume do início,
