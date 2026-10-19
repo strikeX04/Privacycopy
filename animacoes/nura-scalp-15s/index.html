@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NURA: scalp 15s</title>
+<style>
+  html, body { margin: 0; background: #111; height: 100%; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; margin: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<!-- fotos originais do produto enviadas pelo usuário, recortadas, em base64 -->
+<script src="imagens.js"></script>
+<script>
+// ===================== CONFIGURAÇÃO =====================
+const CONFIG = { largura: 1080, altura: 1920, fps: 30, duracao: 15, bpm: 76, semente: 11 };
+const COR = {
+  creme: '#f4efe3', creme2: '#e9dfca', quente: '#f6e4c8', verde: '#1e5a3c', verdeEsc: '#163f2b', verdeMeio: '#2b6b4a',
+  folha: '#5e9b4f', folhaClara: '#8cbf6a', ouro: '#c8a04f', ouroClaro: '#e8c97f',
+  pele: '#ecc09d', peleSombra: '#d9a582', cabelo: '#4a2f22', cabeloEsc: '#36221a', cabeloLuz: '#6e4835',
+  couro: '#f2cdb3', rosa: '#e8a597', boca: '#b05a4c', olho: '#2b1d16', vidro: '#e6eee6', madeira: '#b98656',
+};
+const FONTE = 'Inter, "Liberation Sans", Arial, sans-serif';
+const FONTE_T = 'Caladea, "Liberation Serif", Georgia, serif';
+
+// legendas: [início, fim, texto], tiradas das pausas reais da narração (voz.wav)
+const LEGENDAS = [[0.39, 1.56, "Do you ever change the way"], [1.56, 2.42, "you part your hair,"], [2.42, 3.77, "just so your scalp won't show?"], [4.91, 6.25, "Your hair naturally goes"], [6.25, 7.51, "through growing, resting,"], [7.51, 8.75, "and shedding phases."], [9.87, 10.71, "Meet NURA."], [10.71, 11.45, "A moment of care"], [11.45, 12.97, "in your everyday routine."]];
+const DESTAQUE = new Set(['scalp', 'tiny', 'growing,', 'resting,', 'shedding', 'Stress,', 'hormonal', 'changes,', 'factors', 'whole', 'story.', 'gentle', 'care,', 'dermatologist', 'NURA.', 'care']);
+
+// ===================== AJUDANTES =====================
+function rng(semente) { let a = semente >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const limita = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const mistura = (a, b, p) => a + (b - a) * p;
+const progresso = (t, ini, dur) => limita((t - ini) / dur);
+const suave = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+const salto = (p) => { if (p <= 0) return 0; const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+const L = CONFIG.largura, A = CONFIG.altura;
+const TAU = Math.PI * 2;
+
+// chaves [[t, valor], ...] com transição suave entre elas
+function chave(t, ks, fn = suave) {
+  if (t <= ks[0][0]) return ks[0][1];
+  for (let i = 1; i < ks.length; i++) if (t <= ks[i][0]) return mistura(ks[i - 1][1], ks[i][1], fn((t - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])));
+  return ks[ks.length - 1][1];
+}
+const linear = (p) => p;
+// tremor "em 2": muda a cada 2 quadros, dá cara de papel animado à mão
+function treme(t, k, amp = 1.5) { const r = rng(CONFIG.semente * 977 + k * 131 + Math.floor(t * 15)); return [(r() - 0.5) * 2 * amp, (r() - 0.5) * 2 * amp]; }
+function piscar(t, tempos) { return tempos.some((x) => Math.abs(t - x) < 0.07) ? 1 : 0; }
+
+function sombra(ctx, on = true, dx = 6, dy = 8, a = 0.2) {
+  if (on) { ctx.shadowColor = `rgba(60,40,20,${a})`; ctx.shadowOffsetX = dx; ctx.shadowOffsetY = dy; ctx.shadowBlur = 0; }
+  else { ctx.shadowColor = 'transparent'; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0; }
+}
+function texto(ctx, s, x, y, tam, cor, peso = 800, fonte = FONTE, alinha = 'center') {
+  ctx.font = peso + ' ' + tam + 'px ' + fonte; ctx.fillStyle = cor; ctx.textAlign = alinha; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y);
+}
+function camera(ctx, z, fx, fy, tx = L / 2, ty = A / 2) { ctx.translate(tx, ty); ctx.scale(z, z); ctx.translate(-fx, -fy); }
+function circulo(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); }
+
+// grão de papel, gerado uma vez com semente fixa
+const grao = document.createElement('canvas'); grao.width = 540; grao.height = 960;
+(() => { const g = grao.getContext('2d'), im = g.createImageData(540, 960), r = rng(99);
+  for (let i = 0; i < 540 * 960; i++) { const v = 110 + r() * 145; im.data[i * 4] = v; im.data[i * 4 + 1] = v; im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+  g.putImageData(im, 0, 0); })();
+
+// ===================== PEÇAS =====================
+function folhaForma(ctx, x, y, tam, ang, cor, veia = true) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.fillStyle = cor; ctx.beginPath(); ctx.moveTo(0, -tam);
+  ctx.bezierCurveTo(tam * 0.58, -tam * 0.55, tam * 0.5, tam * 0.55, 0, tam);
+  ctx.bezierCurveTo(-tam * 0.5, tam * 0.55, -tam * 0.58, -tam * 0.55, 0, -tam); ctx.fill();
+  if (veia) {
+    sombra(ctx, false); ctx.strokeStyle = 'rgba(232,201,127,0.75)'; ctx.lineWidth = Math.max(2, tam * 0.035); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -tam * 0.85); ctx.lineTo(0, tam * 0.95); ctx.stroke();
+    ctx.lineWidth = Math.max(1.5, tam * 0.02);
+    for (let i = -2; i <= 2; i++) { const yy = i * tam * 0.3; ctx.beginPath(); ctx.moveTo(0, yy + tam * 0.1); ctx.lineTo(tam * 0.3, yy - tam * 0.1); ctx.moveTo(0, yy + tam * 0.1); ctx.lineTo(-tam * 0.3, yy - tam * 0.1); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
+function fundoParede(ctx) {
+  ctx.fillStyle = COR.creme; ctx.fillRect(-400, -400, L + 800, A + 800);
+  ctx.fillStyle = 'rgba(200,160,79,0.07)';
+  for (let x = -400; x < L + 400; x += 90) ctx.fillRect(x, -400, 40, A + 800);
+}
+
+function espelho(ctx, cx, cy, rx, ry, dentro) {
+  ctx.save();
+  sombra(ctx, true, 8, 12, 0.22);
+  ctx.fillStyle = COR.ouro; ctx.beginPath(); ctx.ellipse(cx, cy, rx + 24, ry + 24, 0, 0, TAU); ctx.fill();
+  sombra(ctx, false);
+  ctx.fillStyle = COR.ouroClaro; ctx.beginPath(); ctx.ellipse(cx, cy, rx + 10, ry + 10, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.clip();
+  ctx.fillStyle = COR.vidro; ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
+  ctx.fillStyle = 'rgba(30,90,60,0.06)'; ctx.fillRect(cx - rx, cy + ry * 0.2, rx * 2, ry);
+  dentro();
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.beginPath(); ctx.moveTo(cx - rx, cy - ry * 0.2); ctx.lineTo(cx - rx * 0.2, cy - ry); ctx.lineTo(cx, cy - ry); ctx.lineTo(cx - rx, cy + ry * 0.05); ctx.fill();
+  ctx.restore();
+}
+
+function relogio(ctx, x, y, r, ang) {
+  ctx.save(); sombra(ctx, true, 4, 6, 0.18);
+  ctx.fillStyle = COR.creme; circulo(ctx, x, y, r); ctx.fill(); sombra(ctx, false);
+  ctx.strokeStyle = COR.verde; ctx.lineWidth = 7; circulo(ctx, x, y, r); ctx.stroke();
+  ctx.lineWidth = 4; ctx.lineCap = 'round';
+  for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r * 0.72, y + Math.sin(a) * r * 0.72); ctx.lineTo(x + Math.cos(a) * r * 0.85, y + Math.sin(a) * r * 0.85); ctx.stroke(); }
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(ang / 12 - 1.2) * r * 0.45, y + Math.sin(ang / 12 - 1.2) * r * 0.45); ctx.stroke();
+  ctx.strokeStyle = COR.ouro; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(ang - Math.PI / 2) * r * 0.68, y + Math.sin(ang - Math.PI / 2) * r * 0.68); ctx.stroke();
+  ctx.restore();
+}
+
+// mulher de papel recortado, de frente. Origem no centro da cabeça.
+function mulher(ctx, o) {
+  ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.incl || 0); ctx.scale(o.s, o.s);
+  const P = (o.part || 0) * 45, c = o.couro || 0, g = 3 + 11 * c;
+  // cabelo de trás
+  sombra(ctx, true, 5, 7, 0.16);
+  ctx.fillStyle = COR.cabeloEsc; ctx.beginPath();
+  ctx.moveTo(-150, -20); ctx.bezierCurveTo(-162, -150, -72, -188, 0, -188); ctx.bezierCurveTo(72, -188, 162, -150, 150, -20);
+  ctx.bezierCurveTo(158, 90, 178, 220, 150, 330); ctx.lineTo(-150, 330); ctx.bezierCurveTo(-178, 220, -158, 90, -150, -20); ctx.fill();
+  // tronco
+  ctx.fillStyle = o.roupa || COR.verde; ctx.beginPath();
+  ctx.moveTo(-270, 600); ctx.bezierCurveTo(-262, 340, -175, 255, -62, 238); ctx.lineTo(62, 238); ctx.bezierCurveTo(175, 255, 262, 340, 270, 600); ctx.closePath(); ctx.fill();
+  sombra(ctx, false);
+  ctx.fillStyle = COR.peleSombra; ctx.fillRect(-38, 95, 76, 150);
+  ctx.beginPath(); ctx.moveTo(-62, 238); ctx.quadraticCurveTo(0, 312, 62, 238); ctx.fill();
+  // orelhas e rosto
+  ctx.fillStyle = COR.peleSombra; ctx.beginPath(); ctx.ellipse(-98, 18, 17, 27, 0, 0, TAU); ctx.ellipse(98, 18, 17, 27, 0, 0, TAU); ctx.fill();
+  sombra(ctx, true, 4, 6, 0.15);
+  ctx.fillStyle = COR.pele; ctx.beginPath(); ctx.ellipse(0, 10, 100, 128, 0, 0, TAU); ctx.fill();
+  sombra(ctx, false);
+  ctx.fillStyle = 'rgba(232,165,151,0.45)'; ctx.beginPath(); ctx.ellipse(-55, 55, 24, 13, 0, 0, TAU); ctx.ellipse(55, 55, 24, 13, 0, 0, TAU); ctx.fill();
+  // olhos
+  const fech = limita(o.olhos || 0), ox = (o.olharX || 0) * 6, oy = (o.olharY || 0) * 5;
+  ctx.strokeStyle = COR.olho; ctx.fillStyle = COR.olho; ctx.lineCap = 'round';
+  for (const sx of [-1, 1]) {
+    const ex = sx * 42;
+    if (fech > 0.55) { ctx.lineWidth = 4.5; ctx.beginPath(); ctx.moveTo(ex - 14, 10); ctx.quadraticCurveTo(ex, 19, ex + 14, 10); ctx.stroke(); }
+    else {
+      ctx.beginPath(); ctx.ellipse(ex + ox, 9 + oy, 10, 12 * (1 - fech), 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#fff'; circulo(ctx, ex + ox + 3, 5 + oy, 2.6); ctx.fill(); ctx.fillStyle = COR.olho;
+      ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(ex - 16, -3); ctx.quadraticCurveTo(ex, -10, ex + 16, -3); ctx.stroke();
+    }
+  }
+  // sobrancelhas: ruga levanta o canto de dentro (preocupação leve)
+  const w = o.ruga || 0; ctx.strokeStyle = COR.cabelo; ctx.lineWidth = 6.5;
+  for (const sx of [-1, 1]) { ctx.beginPath(); ctx.moveTo(sx * 20, -29 - 9 * w); ctx.quadraticCurveTo(sx * 42, -39 - 3 * w, sx * 64, -30 + 4 * w); ctx.stroke(); }
+  // nariz e boca
+  ctx.strokeStyle = COR.peleSombra; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(2, 12); ctx.quadraticCurveTo(9, 38, -2, 45); ctx.stroke();
+  ctx.strokeStyle = COR.boca; ctx.lineWidth = 5.5; ctx.beginPath(); ctx.moveTo(-18, 80); ctx.quadraticCurveTo(0, 80 + 11 * (o.sorriso || 0), 18, 80); ctx.stroke();
+  // couro cabeludo na repartição
+  ctx.fillStyle = COR.couro; ctx.beginPath(); ctx.moveTo(P - g - 2, -124); ctx.lineTo(P + g + 2, -124); ctx.lineTo(P, -175); ctx.fill();
+  // mechas da frente
+  sombra(ctx, true, 4, 6, 0.18); ctx.fillStyle = COR.cabelo;
+  for (const sx of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(P + sx * 1, -173);
+    ctx.bezierCurveTo(P + sx * 60, -170, sx * 152, -142, sx * 154, -30);
+    ctx.bezierCurveTo(sx * 157, 60, sx * 142, 170, sx * 120, 232); ctx.lineTo(sx * 92, 232);
+    ctx.bezierCurveTo(sx * 100, 150, sx * 104, 60, sx * 96, -18);
+    ctx.bezierCurveTo(sx * 88, -80, P + sx * 40, -110, P + sx * g, -126); ctx.closePath(); ctx.fill();
+  }
+  sombra(ctx, false);
+  ctx.strokeStyle = 'rgba(54,34,26,0.6)'; ctx.lineWidth = 3.5;
+  for (const sx of [-1, 1]) for (let k = 1; k <= 3; k++) {
+    ctx.beginPath(); ctx.moveTo(P + sx * (g + 6 + k * 5), -160 + k * 5);
+    ctx.quadraticCurveTo(sx * (70 + k * 22), -150 + k * 12, sx * (122 + k * 8), -20 + k * 34); ctx.stroke();
+  }
+  // brilho dourado na repartição: o fio visual
+  const b = o.brilho || 0;
+  if (b > 0) {
+    ctx.save(); ctx.globalAlpha = b; ctx.strokeStyle = COR.ouroClaro; ctx.lineWidth = 5 + 4 * c; ctx.shadowColor = COR.ouro; ctx.shadowBlur = 26 * b;
+    ctx.beginPath(); ctx.moveTo(P, -174); ctx.lineTo(P, -127); ctx.stroke(); ctx.restore();
+  }
+  ctx.restore();
+}
+
+function mao(ctx, x, y, ang, s, braco = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(s, s);
+  sombra(ctx, true, 4, 6, 0.18); ctx.fillStyle = COR.pele;
+  ctx.beginPath(); ctx.roundRect(-38, -10, 76, 95, 30); ctx.fill();
+  const dy = [8, 0, 3, 12];
+  for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.roundRect(-37 + i * 19, -70 + dy[i], 17, 78, 8.5); ctx.fill(); }
+  ctx.save(); ctx.translate(-36, 32); ctx.rotate(-0.75); ctx.beginPath(); ctx.roundRect(-9, -52, 19, 58, 9.5); ctx.fill(); ctx.restore();
+  if (braco > 0) { ctx.fillStyle = COR.pele; ctx.fillRect(-30, 60, 60, braco + 30); }
+  ctx.fillStyle = COR.verde; ctx.beginPath(); ctx.roundRect(-44, 78 + braco, 88, 140, 16); ctx.fill();
+  ctx.restore();
+}
+
+function escova(ctx, x, y, ang, s, brilho) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(s, s);
+  sombra(ctx, true, 5, 7, 0.2);
+  ctx.fillStyle = COR.madeira; ctx.beginPath(); ctx.roundRect(-17, 40, 34, 200, 17); ctx.fill();
+  ctx.fillStyle = '#d6a571'; ctx.beginPath(); ctx.roundRect(-58, -125, 116, 178, 44); ctx.fill();
+  sombra(ctx, false);
+  ctx.fillStyle = '#3a2d25'; ctx.beginPath(); ctx.roundRect(-47, -114, 94, 156, 36); ctx.fill();
+  ctx.fillStyle = '#efe4d0';
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 6; j++) { circulo(ctx, -30 + i * 20, -92 + j * 24, 4.5); ctx.fill(); }
+  ctx.strokeStyle = COR.cabeloLuz; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-50, -70); ctx.bezierCurveTo(-10, -100, 20, -20, 52, -50); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-48, 10); ctx.bezierCurveTo(-20, -30, 30, 30, 55, -10); ctx.stroke();
+  ctx.save(); ctx.strokeStyle = COR.ouroClaro; ctx.lineWidth = 4; ctx.shadowColor = COR.ouro; ctx.shadowBlur = 18 * brilho;
+  ctx.beginPath(); ctx.moveTo(-52, -30); ctx.bezierCurveTo(-15, -80, 15, 30, 60, -20); ctx.bezierCurveTo(80, -40, 95, -10, 110, -30); ctx.stroke(); ctx.restore();
+  ctx.restore();
+}
+
+// close da repartição vista de cima: fios que se abrem dos dois lados
+function parteClose(ctx, larg, brilho, t) {
+  ctx.fillStyle = COR.cabeloEsc; ctx.fillRect(-300, -300, L + 600, A + 600);
+  const px = (y) => 540 + 26 * Math.sin(y / 330), w = (y) => larg * (0.78 + 0.22 * Math.sin(y / 210 + 1));
+  ctx.fillStyle = COR.couro; ctx.beginPath();
+  for (let y = -300; y <= A + 300; y += 40) ctx.lineTo(px(y) - w(y) / 2, y);
+  for (let y = A + 300; y >= -300; y -= 40) ctx.lineTo(px(y) + w(y) / 2, y);
+  ctx.fill();
+  const k = Math.floor(t * 15); ctx.lineCap = 'round';
+  for (const camada of [0, 1]) for (const sx of [-1, 1]) {
+    const r = rng(CONFIG.semente + camada * 31 + (sx > 0 ? 7 : 0));
+    for (let i = 0; i < 64; i++) {
+      const y0 = -300 + i * (A + 600) / 64 + r() * 22, x0 = px(y0) + sx * (w(y0) / 2 + 2 + r() * 6 + camada * 10);
+      const len = 380 + r() * 260, dy = 110 + r() * 170, wob = (rng(k * 13 + i + camada * 500)() - 0.5) * 4;
+      ctx.strokeStyle = camada ? (i % 3 ? COR.cabelo : COR.cabeloLuz) : '#2c1b14';
+      ctx.lineWidth = camada ? 9 + r() * 5 : 15;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.bezierCurveTo(x0 + sx * 40, y0 + 8, x0 + sx * len * 0.6, y0 + dy * 0.3 + wob, x0 + sx * len, y0 + dy); ctx.stroke();
+    }
+  }
+  if (brilho > 0) {
+    ctx.save(); ctx.globalAlpha = brilho; ctx.strokeStyle = COR.ouroClaro; ctx.lineWidth = 7; ctx.shadowColor = COR.ouro; ctx.shadowBlur = 34;
+    ctx.beginPath(); for (let y = -300; y <= A + 300; y += 40) ctx.lineTo(px(y), y); ctx.stroke(); ctx.restore();
+  }
+}
+
+// corte do couro cabeludo com um folículo. ph: 0 a 1 cresce, 1 a 2 repousa, 2 a 3 cai e um fio novo começa
+function foliculo(ctx, cx, cy, R, ph) {
+  ctx.save(); circulo(ctx, cx, cy, R); ctx.clip();
+  ctx.fillStyle = '#fbf6ec'; ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  const sup = cy - R * 0.28;
+  ctx.fillStyle = '#f6dccd'; ctx.fillRect(cx - R, sup, 2 * R, 2 * R);
+  ctx.fillStyle = COR.couro; ctx.fillRect(cx - R, sup, 2 * R, R * 0.14);
+  ctx.strokeStyle = 'rgba(217,139,116,0.25)'; ctx.lineWidth = R * 0.02;
+  for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(cx - R, sup + R * 0.14 + i * R * 0.22); ctx.bezierCurveTo(cx - R * 0.3, sup + i * R * 0.22, cx + R * 0.3, sup + R * 0.3 + i * R * 0.22, cx + R, sup + R * 0.14 + i * R * 0.22); ctx.stroke(); }
+  const f = ((ph % 3) + 3) % 3;
+  let prof, compr = 1.1, velhoY = 0, velhoA = 1, novo = 0, clube = 0;
+  if (f < 1) { prof = 0.72; compr = 0.35 + 0.75 * f; }
+  else if (f < 2) { prof = 0.72 - 0.3 * (f - 1); clube = f - 1; }
+  else { const q = f - 2; prof = 0.42 + 0.3 * Math.min(1, q * 1.6); velhoY = q * R * 1.4; velhoA = 1 - q; novo = q; }
+  const base = sup + R * prof;
+  ctx.fillStyle = '#e9b9a5'; ctx.beginPath(); ctx.roundRect(cx - R * 0.1, sup - 2, R * 0.2, base - sup + R * 0.08, R * 0.1); ctx.fill();
+  ctx.fillStyle = clube > 0.5 && novo === 0 ? '#f3e3c9' : '#d98b74'; circulo(ctx, cx, base, R * 0.12); ctx.fill();
+  ctx.lineCap = 'round';
+  // fio velho (dourado: o fio visual)
+  ctx.save(); ctx.globalAlpha = velhoA; ctx.strokeStyle = COR.ouro; ctx.lineWidth = R * 0.075; ctx.shadowColor = COR.ouroClaro; ctx.shadowBlur = R * 0.08;
+  const b0 = (novo > 0 ? sup + R * 0.42 : base) - velhoY, topo = sup - R * compr - velhoY;
+  ctx.beginPath(); ctx.moveTo(cx, b0); ctx.bezierCurveTo(cx, mistura(b0, topo, 0.5), cx + R * 0.12, mistura(b0, topo, 0.7), cx + R * 0.08, topo); ctx.stroke();
+  if (clube > 0.3 || novo > 0) { ctx.fillStyle = COR.ouro; circulo(ctx, cx, b0, R * 0.05); ctx.fill(); }
+  ctx.restore();
+  if (novo > 0) {
+    ctx.strokeStyle = COR.ouroClaro; ctx.lineWidth = R * 0.065;
+    ctx.beginPath(); ctx.moveTo(cx, base); ctx.lineTo(cx, mistura(base, sup - R * 0.35, novo)); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle = COR.verde; ctx.lineWidth = Math.max(3, R * 0.03); circulo(ctx, cx, cy, R); ctx.stroke();
+}
+
+const FASES = ['GROW', 'REST', 'SHED'];
+const ANG_FASE = [-90, 30, 150].map((a) => a * Math.PI / 180);
+function glifo(ctx, i, x, y, cor) {
+  ctx.strokeStyle = cor; ctx.fillStyle = cor; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (i === 0) { ctx.moveTo(x, y + 24); ctx.lineTo(x, y - 22); ctx.moveTo(x - 16, y - 6); ctx.lineTo(x, y - 24); ctx.lineTo(x + 16, y - 6); ctx.stroke(); }
+  else if (i === 1) { ctx.fill(); ctx.beginPath(); ctx.roundRect(x - 17, y - 22, 11, 44, 4); ctx.roundRect(x + 6, y - 22, 11, 44, 4); ctx.fill(); }
+  else { ctx.moveTo(x - 8, y - 26); ctx.bezierCurveTo(x + 18, y - 12, x - 18, y + 2, x + 4, y + 16); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x - 10, y + 10); ctx.lineTo(x + 4, y + 24); ctx.lineTo(x + 16, y + 8); ctx.stroke(); }
+}
+// o anel do ciclo GROW, REST, SHED
+function anel(ctx, cx, cy, R, o) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(o.escala, o.escala); ctx.translate(-cx, -cy);
+  ctx.strokeStyle = 'rgba(30,90,60,0.14)'; ctx.lineWidth = 4; circulo(ctx, cx, cy, R); ctx.stroke();
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const q = limita(o.prog * 3 - i); if (q <= 0) continue;
+    const a0 = ANG_FASE[i] + 0.36, a1 = ANG_FASE[(i + 1) % 3] + (i === 2 ? TAU : 0) - 0.36, aq = mistura(a0, a1, q);
+    ctx.strokeStyle = COR.ouro; ctx.lineWidth = 9; ctx.beginPath(); ctx.arc(cx, cy, R, a0, aq); ctx.stroke();
+    if (q >= 1) {
+      const hx = cx + Math.cos(a1) * R, hy = cy + Math.sin(a1) * R, tx = -Math.sin(a1), ty = Math.cos(a1), nx = Math.cos(a1), ny = Math.sin(a1);
+      ctx.fillStyle = COR.ouro; ctx.beginPath(); ctx.moveTo(hx + tx * 16, hy + ty * 16); ctx.lineTo(hx - tx * 6 + nx * 15, hy - ty * 6 + ny * 15); ctx.lineTo(hx - tx * 6 - nx * 15, hy - ty * 6 - ny * 15); ctx.fill();
+    }
+  }
+  if (o.ph !== undefined && o.prog >= 1) {
+    const a = (-90 + o.ph * 120) * Math.PI / 180;
+    ctx.save(); ctx.fillStyle = COR.ouroClaro; ctx.shadowColor = COR.ouro; ctx.shadowBlur = 22;
+    circulo(ctx, cx + Math.cos(a) * R, cy + Math.sin(a) * R, 15); ctx.fill(); ctx.restore();
+  }
+  for (let i = 0; i < 3; i++) {
+    const q = salto(limita(o.prog * 3 - i + 0.35)); if (q <= 0) continue;
+    const x = cx + Math.cos(ANG_FASE[i]) * R, y = cy + Math.sin(ANG_FASE[i]) * R, ativo = o.ativo === i;
+    ctx.save(); ctx.translate(x, y); ctx.scale(q * (ativo ? 1.12 : 1), q * (ativo ? 1.12 : 1));
+    sombra(ctx, true, 4, 6, 0.2);
+    ctx.fillStyle = ativo ? COR.verde : COR.creme; circulo(ctx, 0, 0, 64); ctx.fill(); sombra(ctx, false);
+    ctx.strokeStyle = COR.verde; ctx.lineWidth = 5; circulo(ctx, 0, 0, 64); ctx.stroke();
+    glifo(ctx, i, 0, 0, ativo ? COR.creme : COR.verde);
+    ctx.restore();
+    if (o.rotulos > 0) {
+      ctx.save(); ctx.globalAlpha = o.rotulos * limita(q); ctx.letterSpacing = '4px';
+      const ly = i === 0 ? y - 112 : y + 118, lx = i === 0 ? x : x + (i === 1 ? 48 : -48);
+      texto(ctx, FASES[i], lx, ly, 58, ativo ? COR.verde : 'rgba(30,90,60,0.78)', 800);
+      ctx.letterSpacing = '0px'; ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+function ladrilho(ctx, x, y, r, p) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(p, p);
+  sombra(ctx, true, 5, 8, 0.2); ctx.fillStyle = COR.creme; circulo(ctx, 0, 0, r); ctx.fill(); sombra(ctx, false);
+  ctx.strokeStyle = COR.ouro; ctx.lineWidth = 5; circulo(ctx, 0, 0, r - 8); ctx.stroke();
+  ctx.restore();
+}
+function iconeEstresse(ctx, x, y, t) {
+  const [dx, dy] = treme(t, 1, 2);
+  ctx.save(); ctx.translate(x + dx, y + dy);
+  ctx.fillStyle = '#8f9a93'; ctx.beginPath();
+  circulo(ctx, -30, 0, 32); ctx.fill(); circulo(ctx, 6, -18, 40); ctx.fill(); circulo(ctx, 40, 4, 28); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(-58, 0, 124, 32, 16); ctx.fill();
+  ctx.fillStyle = COR.ouro; ctx.beginPath(); ctx.moveTo(4, 30); ctx.lineTo(-14, 66); ctx.lineTo(4, 62); ctx.lineTo(-8, 92); ctx.lineTo(22, 52); ctx.lineTo(4, 56); ctx.lineTo(16, 30); ctx.fill();
+  ctx.restore();
+}
+function iconeHormonio(ctx, x, y, t) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.strokeStyle = COR.verde; ctx.lineWidth = 9; ctx.lineCap = 'round'; ctx.beginPath();
+  const fase = Math.floor(t * 15) / 15 * 2.4;
+  for (let i = 0; i <= 40; i++) { const u = i / 40, xx = -62 + u * 124, yy = Math.sin(u * TAU * 2 + fase) * 18; i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+  ctx.stroke();
+  ctx.fillStyle = COR.ouro;
+  for (let k = 0; k < 3; k++) { const u = ((k / 3 + t * 0.25) % 1), xx = -62 + u * 124, yy = Math.sin(u * TAU * 2 + fase) * 18; circulo(ctx, xx, yy, 9); ctx.fill(); }
+  ctx.restore();
+}
+function iconeOutros(ctx, x, y, t) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = COR.ouro; circulo(ctx, -30, -20, 30); ctx.fill();
+  ctx.fillStyle = COR.creme; circulo(ctx, -16, -30, 26); ctx.fill();
+  folhaForma(ctx, 34, -6, 34, 0.6 + Math.sin(Math.floor(t * 15) / 15 * 3) * 0.08, COR.folha, false);
+  ctx.fillStyle = COR.verde; for (let i = -1; i <= 1; i++) { circulo(ctx, i * 24, 46, 8); ctx.fill(); }
+  ctx.restore();
+}
+
+// varredura de folhas de papel: p de 0 a 1 cobre a tela, de 1 a 2 descobre
+function folhasVarredura(ctx, p) {
+  const cobre = p <= 1 ? suave(p) : 1 - suave(p - 1);
+  ctx.save(); ctx.globalAlpha = cobre; ctx.fillStyle = COR.quente; ctx.fillRect(0, 0, L, A); ctx.restore();
+  const r = rng(404);
+  for (let i = 0; i < 26; i++) {
+    const y = r() * A, tam = 160 + r() * 200, atraso = r() * 0.25, x0 = L + 250 + r() * 300, x1 = -300 - r() * 300;
+    const q = suave(limita((p / 2 - atraso * 0.5) / (1 - atraso * 0.5)));
+    const cores = [COR.folha, COR.folhaClara, COR.verde, COR.verdeMeio];
+    ctx.save(); sombra(ctx, true, 6, 9, 0.18);
+    folhaForma(ctx, mistura(x0, x1, q), y + Math.sin(q * 6 + i) * 60, tam, -1.1 + r() * 0.8 + q * 1.2, cores[i % 4]);
+    ctx.restore();
+  }
+}
+
+function frasco(ctx, cxx, base, h, sombraOn = true) {
+  const im = IMG.frasco, w = h * im.width / im.height;
+  ctx.save(); if (sombraOn) sombra(ctx, true, 10, 16, 0.28);
+  ctx.drawImage(im, cxx - w / 2, base - h, w, h); ctx.restore();
+}
+
+// ===================== CENAS =====================
+function cena1(ctx, t, d) {
+  fundoParede(ctx);
+  const ent = salto(progresso(t, 0, 0.6)), zp = suave(progresso(t, 1.3, 3.3));
+  const z = mistura(1, 3.4, zp) * mistura(0.94, 1, ent);
+  ctx.save(); camera(ctx, z, 540, mistura(1000, 790, zp));
+  espelho(ctx, 540, 1000, 330, 440, () => {
+    const [jx, jy] = treme(t, 2, 1.2);
+    mulher(ctx, { x: 540 + jx, y: 980 + jy, s: 1.25, part: 0, couro: 0.9, brilho: progresso(t, 2.0, 1.0), ruga: 0.55 * progresso(t, 2.2, 0.8), sorriso: -0.15, olharY: -0.6 * progresso(t, 1.5, 0.6), olhos: piscar(t, [0.9, 3.7]) });
+    const ph = suave(progresso(t, 1.4, 1.0));
+    if (ph > 0) mao(ctx, mistura(900, 625, ph) + jx, mistura(1300, 810, ph) + jy, mistura(-0.6, -1.2, ph), 0.95, 420);
+  });
+  ctx.restore();
+  const pc = suave(progresso(t, 4.0, 0.9));
+  if (pc > 0) { ctx.save(); ctx.globalAlpha = pc; camera(ctx, mistura(1.3, 1.05, pc) + 0.03 * Math.max(0, t - 4.9), 540, 960); parteClose(ctx, 80, 1, t); ctx.restore(); }
+  // pergunta do gancho num cartão de papel
+  const sai = suave(progresso(t, d - 0.55, 0.55));
+  const cp = salto(progresso(t, 0.05, 0.5));
+  ctx.save(); ctx.globalAlpha = 1 - sai; ctx.translate(540, 390 - 60 * sai); ctx.scale(cp, cp);
+  sombra(ctx, true, 7, 10, 0.22); ctx.fillStyle = COR.creme; ctx.beginPath(); ctx.roundRect(-470, -125, 940, 250, 28); ctx.fill(); sombra(ctx, false);
+  ctx.strokeStyle = COR.ouro; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(-452, -107, 904, 214, 20); ctx.stroke();
+  const linhas = [['Why', 'is', 'my', 'scalp'], ['becoming', 'more', 'visible?']];
+  ctx.font = '700 78px ' + FONTE_T; let k = 0;
+  linhas.forEach((ws, li) => {
+    const total = ctx.measureText(ws.join(' ')).width; let x = -total / 2;
+    ws.forEach((wd) => {
+      const ww = ctx.measureText(wd).width, q = salto(progresso(t, 0.25 + k * 0.11, 0.35));
+      ctx.save(); ctx.globalAlpha = limita(q); ctx.translate(x + ww / 2, (li ? 48 : -46) + 20 * (1 - limita(q)));
+      if (wd === 'scalp') { ctx.fillStyle = COR.ouroClaro; ctx.fillRect(-ww / 2 - 6, 16, (ww + 12) * suave(progresso(t, 1.5, 0.5)), 16); }
+      texto(ctx, wd, 0, 0, 78, COR.verde, 700, FONTE_T);
+      ctx.restore(); x += ww + ctx.measureText(' ').width; k++;
+      ctx.font = '700 78px ' + FONTE_T;
+    });
+  });
+  ctx.restore();
+}
+
+function cena2(ctx, t, d) {
+  fundoParede(ctx);
+  const sai = progresso(t, d - 0.6, 0.6), zs = Math.pow(sai, 2.2);
+  const P = chave(t, [[0.6, 0], [1.2, -0.8], [1.45, -0.8], [1.95, 0.7], [2.2, 0.7], [2.6, -0.35]]);
+  const z = 1.3 * mistura(1, 6, zs);
+  const fy = mistura(1000, 980 - 150 * 1.25, suave(sai)), fx = mistura(540, 540 + P * 45 * 1.25, suave(sai));
+  ctx.save(); camera(ctx, z, fx, fy);
+  espelho(ctx, 540, 1000, 330, 440, () => {
+    const vel = t < 4.6 ? t * 1.2 : 4.6 * 1.2 + (t - 4.6) * 9;
+    relogio(ctx, 335, 700, 58, vel);
+    const [jx, jy] = treme(t, 3, 1.2);
+    const olharX = chave(t, [[2.4, 0], [2.9, 0.8], [4.4, 0.8], [4.8, 0], [5.4, 0], [5.8, -0.9], [6.5, -0.9]]);
+    const olharY = chave(t, [[0.5, -0.5], [0.9, -0.5], [2.4, -0.4], [2.9, 0.8], [4.4, 0.8], [4.8, 0], [5.4, 0], [5.8, -0.6]]);
+    const ruga = chave(t, [[0, 0.4], [2.6, 0.5], [3.2, 0.75], [4.6, 0.6], [6.4, 0.45]]);
+    mulher(ctx, { x: 540 + jx, y: 980 + jy, s: 1.25, part: P, couro: 0.75, brilho: 0.25 + 0.25 * sai, ruga, sorriso: chave(t, [[0, -0.1], [3, -0.3], [6, -0.2]]), olharX, olharY, olhos: piscar(t, [2.3, 5.2]) });
+    const hp = suave(progresso(t, 0.3, 0.4)) * (1 - suave(progresso(t, 2.6, 0.4)));
+    if (hp > 0) mao(ctx, 540 + P * 56 + mistura(360, 85, hp) + jx, mistura(1300, 808, hp), mistura(-0.6, -1.2, hp), 1.0, 380);
+    const bp = suave(progresso(t, 2.5, 0.6)) * (1 - suave(progresso(t, 4.5, 0.5)));
+    if (bp > 0) { escova(ctx, mistura(860, 735, bp), mistura(1650, 1175, bp), mistura(-0.1, -0.38, bp), 1.15, 0.5 + 0.5 * Math.sin(t * 6)); mao(ctx, mistura(880, 760, bp), mistura(1830, 1360, bp), -0.38, 1.1, 200); }
+    const pp = suave(progresso(t, 4.9, 0.4)) * (1 - suave(progresso(t, 6.2, 0.4)));
+    if (pp > 0) mao(ctx, 540 - 165 + jx, mistura(1500, 935 + 14 * Math.sin(Math.floor(t * 15) / 15 * 9), pp), 0.3, 1.05, 380);
+  });
+  ctx.restore();
+  // entrada: o close da cena 1 encolhe e some
+  const ent = progresso(t, 0, 0.65);
+  if (ent < 1) { ctx.save(); ctx.globalAlpha = 1 - suave(ent); camera(ctx, mistura(1.08, 0.5, suave(ent)), 540, 960); parteClose(ctx, 80, 1, t + 5.6); ctx.restore(); }
+  // saída: mergulho no couro cabeludo
+  const fl = suave(progresso(t, d - 0.25, 0.25));
+  if (fl > 0) { ctx.fillStyle = `rgba(242,205,179,${fl})`; ctx.fillRect(0, 0, L, A); }
+}
+
+const PH3 = [[0.9, 0.2], [4.35, 0.98], [5.0, 1.0], [5.7, 1.98], [5.75, 2.0], [7.3, 2.98], [7.4, 3.0], [8.4, 3.45]];
+function cena3(ctx, t, d) {
+  ctx.fillStyle = COR.creme; ctx.fillRect(0, 0, L, A);
+  const g = ctx.createRadialGradient(540, 880, 50, 540, 880, 900); g.addColorStop(0, 'rgba(232,201,127,0.22)'); g.addColorStop(1, 'rgba(232,201,127,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, L, A);
+  const sai = suave(progresso(t, d - 0.6, 0.6)), esc = mistura(1, 0.6, sai), cy = mistura(880, 900, sai);
+  const ph = chave(t, PH3, linear);
+  const ativo = t < 4.25 ? -1 : t < 5.0 ? 0 : t < 5.7 ? 1 : t < 7.4 ? 2 : 0;
+  ctx.save(); ctx.globalAlpha = progresso(t, 0.6, 0.4) * (1 - sai); ctx.letterSpacing = '6px';
+  texto(ctx, 'THE HAIR CYCLE', 540, 300, 54, COR.verde, 800); ctx.letterSpacing = '0px';
+  ctx.fillStyle = COR.ouro; const lw = 300 * suave(progresso(t, 0.9, 0.5)); ctx.fillRect(540 - lw / 2, 344, lw, 6);
+  ctx.restore();
+  const fr = 170 * salto(progresso(t, 0.8, 0.6));
+  if (fr > 1) { ctx.save(); ctx.translate(540, cy); ctx.scale(esc, esc); ctx.translate(-540, -cy); foliculo(ctx, 540, cy, fr, ph); ctx.restore(); }
+  anel(ctx, 540, cy, 290, { escala: esc, prog: suave(progresso(t, 0.7, 1.1)), ativo, ph, rotulos: 1 - sai });
+  const fp = salto(progresso(t, 5.9, 0.45));
+  if (fp > 0) {
+    ctx.save(); ctx.globalAlpha = limita(fp) * (1 - sai); ctx.translate(540, 1275); ctx.scale(fp, fp);
+    texto(ctx, 'Shedding 50–100 hairs', 0, -36, 58, COR.verde, 800);
+    texto(ctx, 'a day is normal.', 0, 36, 58, COR.verde, 800);
+    ctx.restore();
+  }
+  // entrada: íris que abre a partir do couro cabeludo
+  const ent = suave(progresso(t, 0, 0.75));
+  if (ent < 1) { ctx.fillStyle = COR.couro; ctx.beginPath(); ctx.rect(0, 0, L, A); ctx.arc(540, 880, ent * 1300, 0, TAU, true); ctx.fill('evenodd'); }
+}
+
+const FATORES = [
+  { x: 250, y: 540, ini: 0.3, nome: ['Stress'], icone: iconeEstresse },
+  { x: 830, y: 540, ini: 0.95, nome: ['Hormonal', 'changes'], icone: iconeHormonio },
+  { x: 250, y: 1100, ini: 1.9, nome: ['Other', 'factors'], icone: iconeOutros },
+  { x: 830, y: 1100, ini: 5.1, nome: ['What you', 'see'], icone: null },
+];
+function cena4(ctx, t, d) {
+  ctx.fillStyle = COR.creme; ctx.fillRect(0, 0, L, A);
+  const cx = 540, cy = 900;
+  // moldura tracejada: a história inteira
+  const mp = suave(progresso(t, 6.3, 1.2));
+  if (mp > 0) {
+    const per = 2 * (900 + 1000);
+    ctx.save(); ctx.strokeStyle = COR.ouro; ctx.lineWidth = 5; ctx.setLineDash([per * mp, per]);
+    ctx.beginPath(); ctx.roundRect(90, 380, 900, 1000, 60); ctx.stroke(); ctx.restore();
+  }
+  // fios dourados ligando o ciclo a cada fator
+  FATORES.forEach((f, i) => {
+    const q = suave(progresso(t, f.ini + 0.25, 0.5)); if (q <= 0) return;
+    const ang = Math.atan2(f.y - cy, f.x - cx), x0 = cx + Math.cos(ang) * 120, y0 = cy + Math.sin(ang) * 120;
+    const x1 = mistura(x0, f.x - Math.cos(ang) * 110, q), y1 = mistura(y0, f.y - Math.sin(ang) * 110, q);
+    ctx.save(); ctx.strokeStyle = COR.ouro; ctx.lineWidth = 4; ctx.setLineDash([2, 12]); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.restore();
+  });
+  const ph = 3.45 + t * 0.32;
+  foliculo(ctx, cx, cy, 102, ph);
+  anel(ctx, cx, cy, 290, { escala: 0.6, prog: 1, ativo: Math.floor(ph) % 3, ph, rotulos: 0 });
+  FATORES.forEach((f, i) => {
+    const p = salto(progresso(t, f.ini, 0.5)); if (p <= 0) return;
+    const pulso = 1 + 0.06 * Math.sin(limita((t - 6.4 - i * 0.25) / 0.5) * Math.PI);
+    ladrilho(ctx, f.x, f.y, 105, p * pulso);
+    ctx.save(); ctx.translate(f.x, f.y); ctx.scale(p * pulso, p * pulso);
+    if (f.icone) f.icone(ctx, 0, 0, t);
+    else { ctx.save(); circulo(ctx, 0, 0, 88); ctx.clip(); ctx.scale(0.13, 0.13); ctx.translate(-540, -960); parteClose(ctx, 80, 0.8, t); ctx.restore(); }
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha = limita(p);
+    f.nome.forEach((s, j) => texto(ctx, s, f.x, f.y + 150 + j * 56, 50, COR.verde, 800));
+    ctx.restore();
+  });
+  if (t > d - 0.5) folhasVarredura(ctx, progresso(t, d - 0.5, 0.5));
+}
+
+function cena5(ctx, t, d) {
+  const zp = suave(progresso(t, d - 0.8, 0.8)), z = 1 + 0.35 * zp;
+  const bx = 850, bBase = 1190, bh = 440;
+  const desenhaMundo = () => {
+    const g = ctx.createLinearGradient(0, 0, 0, A); g.addColorStop(0, '#f9ecd6'); g.addColorStop(1, '#efd5b0'); ctx.fillStyle = g; ctx.fillRect(-400, -400, L + 800, A + 800);
+    // janela e luz quente
+    const luz = suave(progresso(t, 0.3, 2.2));
+    ctx.save(); sombra(ctx, true, 6, 9, 0.16); ctx.fillStyle = COR.creme; ctx.beginPath(); ctx.roundRect(640, 230, 330, 470, [165, 165, 12, 12]); ctx.fill(); sombra(ctx, false);
+    ctx.fillStyle = `rgba(232,201,127,${0.35 + 0.45 * luz})`; ctx.beginPath(); ctx.roundRect(662, 252, 286, 426, [143, 143, 6, 6]); ctx.fill();
+    ctx.fillStyle = COR.creme; ctx.fillRect(800, 252, 10, 426); ctx.fillRect(662, 470, 286, 10);
+    ctx.globalAlpha = 0.18 * luz; ctx.fillStyle = COR.ouroClaro;
+    ctx.beginPath(); ctx.moveTo(662, 300); ctx.lineTo(948, 300); ctx.lineTo(560, 1250); ctx.lineTo(80, 1250); ctx.fill();
+    ctx.restore();
+    // planta de papel
+    for (let i = 0; i < 7; i++) folhaForma(ctx, 150 + Math.sin(i * 2.1) * 50, 1000 - i * 22, 70, -0.9 + i * 0.3 + 0.04 * Math.sin(Math.floor(t * 15) / 15 * 2 + i), i % 2 ? COR.folha : COR.folhaClara, false);
+    // a mulher, tranquila
+    const [jx, jy] = treme(t, 5, 1);
+    const olhos = t < 1.1 ? 1 : piscar(t, [3.0, 6.1]);
+    mulher(ctx, { x: 395 + jx, y: 760 + jy, s: 1.15, part: 0, couro: 0.2, brilho: 0, ruga: 0, sorriso: chave(t, [[0, 0.35], [1.4, 0.7]]), olharX: chave(t, [[3.6, 0], [4.1, 0.9]]), olharY: chave(t, [[3.6, 0], [4.1, 0.3]]), olhos, incl: chave(t, [[0, 0.05], [1.2, -0.03]]) });
+    // bancada
+    ctx.save(); sombra(ctx, true, 0, 10, 0.2);
+    ctx.fillStyle = '#e8dcc6'; ctx.fillRect(-400, 1170, L + 800, 36); ctx.fillStyle = '#d3c1a1'; ctx.fillRect(-400, 1206, L + 800, 120); ctx.restore();
+    ctx.fillStyle = COR.verdeEsc; ctx.fillRect(-400, 1326, L + 800, 900);
+    ctx.fillStyle = COR.ouro; ctx.fillRect(-400, 1326, L + 800, 6);
+    // vaso
+    ctx.save(); sombra(ctx, true, 5, 7, 0.18); ctx.fillStyle = COR.creme; ctx.beginPath(); ctx.moveTo(90, 1080); ctx.lineTo(210, 1080); ctx.lineTo(195, 1188); ctx.lineTo(105, 1188); ctx.fill(); ctx.restore();
+    ctx.fillStyle = COR.ouro; ctx.fillRect(92, 1096, 116, 8);
+    // copo d'água
+    ctx.save(); ctx.fillStyle = 'rgba(214,232,236,0.6)'; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(555, 1030); ctx.lineTo(645, 1030); ctx.lineTo(636, 1188); ctx.lineTo(564, 1188); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(150,200,215,0.45)'; ctx.beginPath(); ctx.moveTo(560, 1085); ctx.lineTo(640, 1085); ctx.lineTo(636, 1186); ctx.lineTo(564, 1186); ctx.fill(); ctx.restore();
+    // cápsulas (foto original)
+    const cp = salto(progresso(t, 4.3, 0.5));
+    if (cp > 0) { const im = IMG.capsulas, w = 150 * cp, h = w * im.height / im.width; ctx.save(); sombra(ctx, true, 5, 7, 0.2); ctx.drawImage(im, 700 - w / 2 - 30, 1196 - h, w, h); ctx.restore(); }
+  };
+  ctx.save(); camera(ctx, z, bx, bBase - bh / 2, bx, bBase - bh / 2); desenhaMundo(); ctx.restore();
+  // frasco (foto original) cai suave na bancada quando ela fala de cuidado
+  const bp = salto(progresso(t, 3.75, 0.6)), ba = limita(progresso(t, 3.75, 0.25));
+  const verde = suave(progresso(t, d - 0.5, 0.5));
+  if (verde > 0) {
+    ctx.save(); const gr = ctx.createRadialGradient(bx, bBase - bh / 2, 0, bx, bBase - bh / 2, 1400); gr.addColorStop(0, COR.verdeMeio); gr.addColorStop(1, COR.verdeEsc);
+    ctx.fillStyle = gr; circulo(ctx, bx, bBase - bh / 2, verde * 1500); ctx.fill(); ctx.restore();
+  }
+  if (ba > 0) {
+    ctx.save(); camera(ctx, z, bx, bBase - bh / 2, bx, bBase - bh / 2); ctx.globalAlpha = ba;
+    frasco(ctx, bx, bBase - 260 * (1 - bp), bh); ctx.restore();
+  }
+  if (t < 0.6) folhasVarredura(ctx, 1 + progresso(t, 0, 0.6));
+}
+
+function cena6(ctx, t, d, tg, ini) {
+  const i0 = ini || { cx: 850, cy: 970, h: 594 };
+  const g = ctx.createRadialGradient(540, 930, 60, 540, 930, 1200); g.addColorStop(0, COR.verdeMeio); g.addColorStop(1, COR.verdeEsc);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, L, A);
+  const para = 1 - suave(progresso(t, i0.para || 4.6, 0.8));   // tudo para por completo antes do fim
+  const mv = suave(progresso(t, 0, 0.8));
+  const cx = mistura(i0.cx, 540, mv), h = mistura(i0.h, 860, mv), cyc = mistura(i0.cy, 930, mv) + 8 * Math.sin(t * 1.6) * para;
+  // brilho e anel dourado atrás do frasco
+  const ap = suave(progresso(t, 0.4, 1.1));
+  const gl = ctx.createRadialGradient(540, 930, 40, 540, 930, 520); gl.addColorStop(0, `rgba(232,201,127,${0.28 * ap})`); gl.addColorStop(1, 'rgba(232,201,127,0)'); ctx.fillStyle = gl; ctx.fillRect(0, 0, L, A);
+  ctx.save(); ctx.strokeStyle = COR.ouroClaro; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(540, 930, 400, -Math.PI / 2, -Math.PI / 2 + TAU * ap); ctx.stroke(); ctx.restore();
+  // o fio dourado chega pelo canto e se enrola no anel
+  const fp = suave(progresso(t, 0.3, 1.2));
+  if (fp > 0) { ctx.save(); ctx.strokeStyle = COR.ouro; ctx.lineWidth = 4; ctx.setLineDash([1400 * fp, 2000]); ctx.beginPath(); ctx.moveTo(-20, 620); ctx.bezierCurveTo(160, 560, 120, 420, 260, 470); ctx.bezierCurveTo(330, 495, 300, 560, 220, 560); ctx.bezierCurveTo(170, 560, 150, 520, 170, 500); ctx.stroke(); ctx.restore(); }
+  // folhas nos cantos
+  const fl = salto(progresso(t, 0.5, 0.8));
+  const sw = (k) => 0.05 * Math.sin(Math.floor(t * 15) / 15 * 1.8 + k) * para;
+  ctx.save(); sombra(ctx, true, 6, 9, 0.25);
+  folhaForma(ctx, mistura(-200, 40, fl), 230, 170, 0.7 + sw(1), COR.folha); folhaForma(ctx, mistura(-200, 150, fl), 120, 115, 1.4 + sw(2), COR.folhaClara);
+  folhaForma(ctx, mistura(1280, 1040, fl), 260, 180, -0.6 + sw(3), COR.folha); folhaForma(ctx, mistura(1280, 930, fl), 140, 110, -1.2 + sw(4), COR.folhaClara);
+  folhaForma(ctx, mistura(-200, 50, fl), 1290, 190, 2.5 + sw(5), COR.folhaClara); folhaForma(ctx, mistura(1280, 1030, fl), 1300, 180, -2.5 + sw(6), COR.folha);
+  ctx.restore();
+  frasco(ctx, cx, cyc + h / 2, h);
+  // título
+  ['Your Hair', 'Deserves Care.'].forEach((s, i) => {
+    const q = suave(progresso(t, 0.8 + i * 0.35, 0.6));
+    ctx.save(); ctx.globalAlpha = q; texto(ctx, s, 540, 268 + i * 104 + 24 * (1 - q), 96, COR.creme, 700, FONTE_T); ctx.restore();
+  });
+  const ul = 420 * suave(progresso(t, 1.6, 0.6)); ctx.fillStyle = COR.ouroClaro; ctx.fillRect(540 - ul / 2, 438, ul, 6);
+  // chamada final
+  const cta = salto(progresso(t, 4.1, 0.5));
+  if (cta > 0) {
+    ctx.save(); ctx.translate(540, 1478); ctx.scale(cta, cta);
+    ctx.font = '800 62px ' + FONTE; const w = ctx.measureText('Discover NURA.').width + 110;
+    sombra(ctx, true, 6, 9, 0.3); ctx.fillStyle = COR.creme; ctx.beginPath(); ctx.roundRect(-w / 2, -58, w, 116, 58); ctx.fill(); sombra(ctx, false);
+    ctx.strokeStyle = COR.ouro; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(-w / 2 + 8, -50, w - 16, 100, 50); ctx.stroke();
+    texto(ctx, 'Discover NURA.', 0, 2, 62, COR.verde, 800);
+    ctx.restore();
+  }
+  // aviso legal de suplemento
+  const av = progresso(t, 4.4, 0.4);
+  if (av > 0) {
+    ctx.save(); ctx.globalAlpha = 0.8 * av;
+    ['These statements have not been evaluated by the Food and', 'Drug Administration. This product is not intended to diagnose,', 'treat, cure, or prevent any disease.'].forEach((s, i) => texto(ctx, s, 540, 1564 + i * 29, 23, COR.creme, 500));
+    ctx.restore();
+  }
+}
+
+// [início, fim, função]. Cortes nas pausas da narração.
+// versão de 15 s: gancho, ciclo e produto, reaproveitando as cenas da versão de 45 s com o tempo redistribuído
+const dobra = (t, ks) => chave(t, ks, linear);
+function cenaA(ctx, t, d) {
+  cena1(ctx, t * 5.6 / 4.6, 5.6);
+  const fl = suave(progresso(t, d - 0.25, 0.25));
+  if (fl > 0) { ctx.fillStyle = `rgba(242,205,179,${fl})`; ctx.fillRect(0, 0, L, A); }
+}
+function cenaB(ctx, t, d) {
+  cena3(ctx, dobra(t, [[0, 0], [1.6, 4.25], [2.25, 5.0], [3.0, 5.7], [d, 7.8]]), 8.4);
+  const fl = suave(progresso(t, d - 0.35, 0.35));
+  if (fl > 0) { ctx.fillStyle = COR.creme; ctx.globalAlpha = fl; ctx.fillRect(0, 0, L, A); ctx.globalAlpha = 1; }
+}
+function cenaC(ctx, t, d) {
+  cena6(ctx, dobra(t, [[0, 0], [3.55, 4.1], [d, 7.2]]), 7.2, 0, { cx: 540, cy: 930, h: 520, para: 3.6 });
+  const ir = suave(progresso(t, 0, 0.6));
+  if (ir < 1) { ctx.fillStyle = COR.creme; ctx.beginPath(); ctx.rect(0, 0, L, A); ctx.arc(540, 930, ir * 1300, 0, TAU, true); ctx.fill('evenodd'); }
+}
+const CENAS = [
+  [0, 4.6, cenaA],
+  [4.6, 9.5, cenaB],
+  [9.5, 15, cenaC],
+];
+const STORYBOARD = [3.0, 7.9, 14.2];
+
+// ===================== LEGENDAS =====================
+function legendasDesenha(ctx, t) {
+  for (let i = 0; i < LEGENDAS.length; i++) {
+    const [ini, fim, s] = LEGENDAS[i], prox = LEGENDAS[i + 1];
+    const fimV = prox && prox[0] - fim < 0.6 ? prox[0] : fim + 0.15;
+    if (t < ini - 0.06 || t >= fimV) continue;
+    const pin = salto(progresso(t, ini - 0.06, 0.18)), pout = prox && prox[0] - fim < 0.6 ? 1 : 1 - progresso(t, fim, 0.15);
+    ctx.font = '800 54px ' + FONTE;
+    const pal = s.split(' '), esp = ctx.measureText(' ').width, linhas = [[]]; let lw = 0;
+    pal.forEach((p) => { const w = ctx.measureText(p).width; if (lw + w > 860 && linhas[linhas.length - 1].length) { linhas.push([]); lw = 0; } linhas[linhas.length - 1].push(p); lw += w + esp; });
+    const larguras = linhas.map((ws) => ctx.measureText(ws.join(' ')).width);
+    const W = Math.max(...larguras) + 72, H = linhas.length * 68 + 34;
+    ctx.save(); ctx.globalAlpha = limita(pin) * pout; ctx.translate(540, 1478); ctx.scale(mistura(0.9, 1, limita(pin)), mistura(0.9, 1, limita(pin)));
+    ctx.fillStyle = 'rgba(22,63,43,0.92)'; ctx.beginPath(); ctx.roundRect(-W / 2, -H / 2, W, H, 26); ctx.fill();
+    ctx.strokeStyle = 'rgba(232,201,127,0.85)'; ctx.lineWidth = 3; ctx.stroke();
+    linhas.forEach((ws, li) => {
+      let x = -larguras[li] / 2; const y = -H / 2 + 17 + 34 + li * 68;
+      ws.forEach((p) => { const w = ctx.measureText(p).width; texto(ctx, p, x, y, 54, DESTAQUE.has(p) ? COR.ouroClaro : COR.creme, 800, FONTE, 'left'); ctx.font = '800 54px ' + FONTE; x += w + esp; });
+    });
+    ctx.restore();
+    break;
+  }
+}
+
+// ===================== DESENHO =====================
+const tela = document.getElementById('c');
+const ctx = tela.getContext('2d');
+let ESCALA = 1;
+function definirEscala(e) { ESCALA = e; tela.width = Math.round(L * e); tela.height = Math.round(A * e); }
+definirEscala(1);
+const IMG = {};
+
+function desenha(t) {
+  ctx.setTransform(ESCALA, 0, 0, ESCALA, 0, 0);
+  sombra(ctx, false); ctx.globalAlpha = 1; ctx.setLineDash([]);
+  ctx.fillStyle = COR.creme; ctx.fillRect(0, 0, L, A);
+  const cena = CENAS.find(([ini, fim]) => t >= ini && t < fim) || CENAS[CENAS.length - 1];
+  ctx.save(); cena[2](ctx, t - cena[0], cena[1] - cena[0], t); ctx.restore();
+  ctx.save(); ctx.globalAlpha = 0.16; ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(grao, 0, 0, L, A); ctx.restore();
+  legendasDesenha(ctx, t);
+}
+
+// ===================== TRILHA EM CÓDIGO =====================
+// Piano suave: lá menor introspectivo até 29,6 s, dó maior esperançoso depois. Silêncio antes de "Meet NURA".
+const ACORDES = [
+  [0, [57, 60, 64, 69], 45], [2.3, [53, 57, 60, 64], 41], [4.6, [55, 60, 64, 67], 48], [7.0, [55, 59, 62, 67], 43],
+  [9.8, [60, 64, 67, 72], 48], [11.4, [62, 67, 71, 74], 43], [12.6, [60, 64, 67, 72], 36],
+];
+const MUS = { silencio: 9.25, b: 9.8, final: 12.6, sinos: [[6.2, 1318.5], [6.85, 1174.7], [7.6, 1046.5]], pops: [], nura: 9.87, sopros: [4.4, 9.3] };
+async function trilha() {
+  const sr = 48000, dur = CONFIG.duracao, ac = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.connect(ac.destination);
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4200; lp.connect(comp);
+  const mestre = ac.createGain(); mestre.gain.setValueAtTime(0.95, 0); mestre.gain.setValueAtTime(0.95, dur - 1.4); mestre.gain.linearRampToValueAtTime(0, dur); mestre.connect(lp);
+  const rev = ac.createConvolver(), ir = ac.createBuffer(2, sr * 2.6, sr), r = rng(123);
+  for (let c = 0; c < 2; c++) { const dd = ir.getChannelData(c); for (let i = 0; i < dd.length; i++) dd[i] = (r() * 2 - 1) * Math.pow(1 - i / dd.length, 3); }
+  rev.buffer = ir; const revG = ac.createGain(); revG.gain.value = 0.3; rev.connect(revG); revG.connect(mestre);
+  const bus = ac.createGain(); bus.connect(mestre); bus.connect(rev);
+  const m2f = (n) => 440 * Math.pow(2, (n - 69) / 12);
+  function nota(t0, f, durN, vol, tipo = 'sine') {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = tipo; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0008, t0 + durN);
+    o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + durN + 0.05);
+  }
+  const piano = (t0, n, vol, durN) => { const f = m2f(n); nota(t0, f, durN, vol); nota(t0, f * 2, durN * 0.5, vol * 0.22); nota(t0, f * 3, durN * 0.25, vol * 0.07); };
+  function pad(t0, t1, n, vol) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'triangle'; o.frequency.value = m2f(n);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.8); g.gain.setValueAtTime(vol, Math.max(t0 + 0.8, t1 - 0.5)); g.gain.linearRampToValueAtTime(0, t1);
+    o.connect(g); g.connect(bus); o.start(t0); o.stop(t1 + 0.05);
+  }
+  ACORDES.forEach(([ini, notas, baixo], i) => {
+    let fim = i + 1 < ACORDES.length ? ACORDES[i + 1][0] : dur;
+    if (ini < MUS.silencio && fim > MUS.silencio) fim = MUS.silencio;
+    pad(ini, fim, baixo, 0.05); notas.forEach((n) => pad(ini, fim, n, 0.011));
+    const B = ini >= MUS.b, passo = B ? 0.395 : 0.79, padrao = [0, 1, 2, 3, 2, 1];
+    if (ini >= MUS.final) { notas.concat([76]).forEach((n, k) => piano(ini + k * 0.05, n + 12, 0.09, 2.6)); return; }
+    let k = 0; for (let tt = ini; tt < fim - 0.05; tt += passo, k++) piano(tt, notas[padrao[k % 6]] + 12, B ? 0.085 : 0.07, B ? 1.3 : 2.2);
+  });
+  const sino = (t0, f, v) => { nota(t0, f, 1.5, v); nota(t0, f * 2.01, 0.7, v * 0.3); };
+  MUS.sinos.forEach(([t0, f]) => sino(t0, f, 0.09));
+  MUS.pops.forEach((t0) => sino(t0, 1568, 0.05));
+  sino(MUS.nura, 1046.5, 0.08); sino(MUS.nura, 2093, 0.05);
+  // sopro de papel nas transições
+  const ruido = ac.createBuffer(1, sr, sr), rr = rng(7), nd = ruido.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = rr() * 2 - 1;
+  MUS.sopros.forEach((t0) => {
+    const s = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = ruido;
+    bp.type = 'bandpass'; bp.Q.value = 1.2; bp.frequency.setValueAtTime(600, t0); bp.frequency.exponentialRampToValueAtTime(3200, t0 + 0.5);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.09, t0 + 0.2); g.gain.linearRampToValueAtTime(0, t0 + 0.6);
+    s.connect(bp); bp.connect(g); g.connect(mestre); s.start(t0); s.stop(t0 + 0.7);
+  });
+  const buf = await ac.startRendering();
+  return wavBase64(buf);
+}
+
+function wavBase64(buf) {
+  const canais = buf.numberOfChannels, n = buf.length, bytes = 44 + n * canais * 2;
+  const v = new DataView(new ArrayBuffer(bytes));
+  const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, bytes - 8, true); s(8, 'WAVE'); s(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, canais, true); v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * canais * 2, true); v.setUint16(32, canais * 2, true); v.setUint16(34, 16, true);
+  s(36, 'data'); v.setUint32(40, n * canais * 2, true);
+  const dados = []; for (let c = 0; c < canais; c++) dados.push(buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < canais; c++) { v.setInt16(o, limita(dados[c][i], -1, 1) * 32767, true); o += 2; }
+  const u8 = new Uint8Array(v.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 32768) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 32768));
+  return btoa(bin);
+}
+
+// ===================== CONTROLE =====================
+// só expõe seek depois que as fotos e as fontes carregaram, pro render não fotografar quadro incompleto
+(async () => {
+  for (const [k, src] of Object.entries(window.IMG_SRC)) { const im = new Image(); im.src = src; await im.decode(); IMG[k] = im; }
+  await Promise.all([document.fonts.load('700 80px Caladea'), document.fonts.load('800 54px Inter'), document.fonts.load('500 23px Inter')]);
+  window.STORYBOARD = STORYBOARD; window.trilha = trilha; window.definirEscala = definirEscala;
+  window.seek = (t) => desenha(limita(t, 0, CONFIG.duracao - 1 / CONFIG.fps));
+  window.CONFIG = CONFIG;
+  if (new URLSearchParams(location.search).has('render')) { desenha(0); return; }
+  let pausado = false, base = performance.now(), ultimo = 0;
+  tela.addEventListener('click', () => { pausado = !pausado; base = performance.now() - ultimo * 1000; });
+  (function laco(agora) {
+    if (!pausado) { ultimo = ((agora - base) / 1000) % CONFIG.duracao; desenha(ultimo); }
+    requestAnimationFrame(laco);
+  })(performance.now());
+})();
+</script>
+</body>
+</html>
