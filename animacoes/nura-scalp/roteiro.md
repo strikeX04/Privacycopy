@@ -41,7 +41,7 @@ Legendas: frases curtas da narração, brancas sobre faixa verde-escura, entre 7
 - Não mostra antes e depois.
 - Não cita ingredientes, estudos ou benefícios além do que está impresso no rótulo.
 
-## Pendências
-- Voz: escolher uma das três amostras Piper ou mandar um voz.mp3 do ElevenLabs.
-- Rótulo: a foto parece um mockup com linhas-guia de impressão e textos "[Your LLC Name Here]" e "[Phone or Email]".
-- Aviso legal de suplemento no final (recomendado).
+## Decisões
+- Voz: Piper en_US hfc_female (voz 1), em voz.wav, com as frases posicionadas na linha do tempo.
+- Rótulo: linhas-guia de impressão apagadas da foto (fotos/frasco-final.webp), sem mexer no design.
+- Aviso legal da FDA no final e o dado "50–100 hairs a day" na cena 3.
