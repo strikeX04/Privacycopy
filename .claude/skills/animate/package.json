@@ -1,0 +1,9 @@
+{
+  "name": "animate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Skill /animate: vídeo animado em código, renderizado com Playwright e FFmpeg",
+  "dependencies": {
+    "playwright": "1.56.1"
+  }
+}

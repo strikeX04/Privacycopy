@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>animação</title>
+<style>
+  html, body { margin: 0; background: #111; height: 100%; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; margin: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ===================== CONFIGURAÇÃO =====================
+// 16:9 = 1920 x 1080 (YouTube). 9:16 = 1080 x 1920 (Reels, Shorts, TikTok).
+const CONFIG = { largura: 1920, altura: 1080, fps: 30, duracao: 12, bpm: 100, semente: 7 };
+const COR = { fundo: '#101418', tinta: '#f4efe6', destaque: '#ff7a1a', apoio: '#4cc9f0' };
+
+// ===================== AJUDANTES =====================
+// Tudo depende só do tempo t, nunca de Math.random() nem do relógio: o mesmo t sempre desenha o mesmo quadro.
+function rng(semente) { let a = semente >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const limita = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const mistura = (a, b, p) => a + (b - a) * p;
+const progresso = (t, ini, dur) => limita((t - ini) / dur);
+const suave = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+const salto = (p) => { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+
+function texto(ctx, s, x, y, tam, cor, peso = 800, alinha = 'center') {
+  ctx.font = peso + ' ' + tam + 'px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+  ctx.fillStyle = cor; ctx.textAlign = alinha; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y);
+}
+// texto que aparece letra a letra entre ini e ini + dur
+function escreve(ctx, s, x, y, tam, cor, t, ini, dur) {
+  const n = Math.floor(s.length * progresso(t, ini, dur));
+  texto(ctx, s.slice(0, n), x, y, tam, cor);
+}
+
+// ===================== CENAS =====================
+// Cada cena recebe (ctx, t local em segundos, duração da cena, t global). L e A são largura e altura.
+const L = CONFIG.largura, A = CONFIG.altura;
+
+function cenaAbertura(ctx, t, d) {
+  const p = salto(progresso(t, 0.2, 0.8));
+  ctx.strokeStyle = COR.destaque; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.arc(L / 2, A / 2, 260 * p, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * suave(progresso(t, 0.2, 1.4))); ctx.stroke();
+  ctx.globalAlpha = progresso(t, 0.9, 0.5);
+  texto(ctx, 'COMO UMA ONDA NASCE', L / 2, A / 2, 84, COR.tinta);
+  ctx.globalAlpha = 1;
+}
+
+function cenaOnda(ctx, t, d) {
+  const cx = L * 0.3, cy = A / 2, r = 200, ang = t * 1.6;
+  ctx.strokeStyle = 'rgba(244,239,230,0.35)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  const px = cx + Math.cos(ang) * r, py = cy - Math.sin(ang) * r;
+  ctx.strokeStyle = COR.tinta; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.stroke();
+  ctx.fillStyle = COR.destaque; ctx.beginPath(); ctx.arc(px, py, 16, 0, Math.PI * 2); ctx.fill();
+  // a onda: o seno do ângulo desenhado ao longo do tempo
+  ctx.strokeStyle = COR.apoio; ctx.lineWidth = 6; ctx.beginPath();
+  const x0 = L * 0.5, largura = L * 0.42, mostra = suave(progresso(t, 0, d * 0.8));
+  for (let i = 0; i <= 300 * mostra; i++) {
+    const u = i / 300, y = cy - Math.sin(ang - u * Math.PI * 4) * r;
+    if (i === 0) ctx.moveTo(x0 + u * largura, y); else ctx.lineTo(x0 + u * largura, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([10, 12]); ctx.strokeStyle = 'rgba(255,122,26,0.6)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x0, py); ctx.stroke(); ctx.setLineDash([]);
+  escreve(ctx, 'sen(θ)', x0 + 70, cy - r - 60, 54, COR.apoio, t, 0.5, 1);
+}
+
+function cenaFinal(ctx, t, d) {
+  const r = rng(CONFIG.semente);
+  for (let i = 0; i < 40; i++) {
+    const x = r() * L, y = r() * A, s = 4 + r() * 10, atraso = r() * 0.8;
+    ctx.globalAlpha = progresso(t, atraso, 0.4) * 0.6;
+    ctx.fillStyle = i % 2 ? COR.destaque : COR.apoio; ctx.fillRect(x, y, s, s);
+  }
+  ctx.globalAlpha = 1;
+  const y = mistura(A / 2 + 40, A / 2, suave(progresso(t, 0.2, 0.6)));
+  ctx.globalAlpha = progresso(t, 0.2, 0.4);
+  texto(ctx, 'Toda onda é um círculo girando', L / 2, y, 72, COR.tinta);
+  ctx.globalAlpha = 1;
+}
+
+// [início, fim, função]. As cenas não podem se sobrepor nem deixar buraco.
+const CENAS = [
+  [0, 3, cenaAbertura],
+  [3, 9, cenaOnda],
+  [9, 12, cenaFinal],
+];
+// Um tempo-chave por cena, pro storyboard de aprovação.
+const STORYBOARD = [2.2, 6.5, 11];
+
+// ===================== DESENHO =====================
+const tela = document.getElementById('c');
+const ctx = tela.getContext('2d');
+let ESCALA = 1;
+function definirEscala(e) { ESCALA = e; tela.width = Math.round(L * e); tela.height = Math.round(A * e); }
+definirEscala(1);
+
+function desenha(t) {
+  ctx.setTransform(ESCALA, 0, 0, ESCALA, 0, 0);
+  ctx.fillStyle = COR.fundo; ctx.fillRect(0, 0, L, A);
+  const cena = CENAS.find(([ini, fim]) => t >= ini && t < fim) || CENAS[CENAS.length - 1];
+  ctx.save(); cena[2](ctx, t - cena[0], cena[1] - cena[0], t); ctx.restore();
+}
+
+// ===================== TRILHA EM CÓDIGO =====================
+// Uma base grave em cada tempo do BPM e um acorde suave por cena. Devolve um WAV em base64.
+async function trilha() {
+  const sr = 48000, dur = CONFIG.duracao, ac = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
+  const mestre = ac.createGain(); mestre.gain.value = 0.5; mestre.connect(ac.destination);
+  const batida = 60 / CONFIG.bpm;
+  for (let t = 0; t < dur; t += batida) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.18);
+    g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g); g.connect(mestre); o.start(t); o.stop(t + 0.3);
+  }
+  const notas = [[220, 277.2, 329.6], [196, 246.9, 293.7], [174.6, 220, 261.6]];
+  CENAS.forEach(([ini, fim], i) => notas[i % notas.length].forEach((f) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, ini); g.gain.linearRampToValueAtTime(0.06, ini + 0.4); g.gain.linearRampToValueAtTime(0, fim);
+    o.connect(g); g.connect(mestre); o.start(ini); o.stop(fim);
+  }));
+  const buf = await ac.startRendering();
+  return wavBase64(buf);
+}
+
+function wavBase64(buf) {
+  const canais = buf.numberOfChannels, n = buf.length, bytes = 44 + n * canais * 2;
+  const v = new DataView(new ArrayBuffer(bytes));
+  const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, bytes - 8, true); s(8, 'WAVE'); s(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, canais, true); v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * canais * 2, true); v.setUint16(32, canais * 2, true); v.setUint16(34, 16, true);
+  s(36, 'data'); v.setUint32(40, n * canais * 2, true);
+  const dados = []; for (let c = 0; c < canais; c++) dados.push(buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < canais; c++) { v.setInt16(o, limita(dados[c][i], -1, 1) * 32767, true); o += 2; }
+  const u8 = new Uint8Array(v.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 32768) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 32768));
+  return btoa(bin);
+}
+
+// ===================== CONTROLE =====================
+window.CONFIG = CONFIG; window.STORYBOARD = STORYBOARD; window.trilha = trilha; window.definirEscala = definirEscala;
+window.seek = (t) => desenha(limita(t, 0, CONFIG.duracao - 1 / CONFIG.fps));
+if (new URLSearchParams(location.search).has('render')) {
+  desenha(0);
+} else {
+  // prévia no navegador: toca em loop; clique pra pausar
+  let pausado = false, base = performance.now();
+  tela.addEventListener('click', () => { pausado = !pausado; base = performance.now() - ultimo * 1000; });
+  let ultimo = 0;
+  (function laco(agora) {
+    if (!pausado) { ultimo = ((agora - base) / 1000) % CONFIG.duracao; desenha(ultimo); }
+    requestAnimationFrame(laco);
+  })(performance.now());
+}
+</script>
+</body>
+</html>
