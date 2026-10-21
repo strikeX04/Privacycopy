@@ -46,8 +46,8 @@ const SFX = [
 const CAM = [
   [0, 1.08, 540, 900, 0], [1.5, 1.0, 540, 960, 0], [4.2, 1.0, 540, 940, 0], [5.6, 1.06, 540, 900, -.005],
   [9.6, 1.02, 540, 960, 0], [11.4, 1.05, 540, 940, .005], [13.2, 1.0, 540, 960, 0], [15.6, 1.07, 560, 900, 0],
-  [17.4, 1.0, 540, 960, 0], [19.4, 1.05, 540, 920, 0], [20.6, 1.0, 540, 960, 0], [24, 1.05, 540, 960, 0],
-  [25.6, 1.0, 540, 960, 0], [28.2, 1.06, 540, 1050, 0], [30, 1.06, 540, 1040, 0],
+  [17.4, 1.0, 540, 960, 0], [19.4, 1.05, 540, 920, 0], [20.6, 1.0, 540, 960, 0], [22.2, 1.06, 540, 900, .006],
+  [23.8, 1.01, 540, 980, -.004], [25.6, 1.0, 540, 960, 0], [28.2, 1.06, 540, 1050, 0], [30, 1.1, 540, 1070, .004],
 ];
 const camW = camPath(CAM, { sigma: .3 });
 const CX = W / 2, GOLD = B, GREEN = S.colors.green;
@@ -290,10 +290,10 @@ function waButton(ctx, f, { y, start }) {
   const pw = prog(f, start, start + 20, E.smooth), ph = spring(f, start + 6, { k: 120, c: 14 });
   if (pw <= 0) return;
   const press = 1 - .06 * Math.sin(Math.PI * prog(f, 1690, 1706));
-  const w = lerp(150, 780, pw), h = lerp(150, 150, ph), s = press * (1 + .03 * prog(f, 1706, 1800, E.lin));
+  const w = lerp(150, 780, pw), h = lerp(150, 150, ph), s = press * (1 + .03 * prog(f, 1706, 1800, E.lin) + .025 * Math.sin(f / 16) * prog(f, 1640, 1680));
   ctx.save(); ctx.translate(CX, y); ctx.scale(s, s);
-  for (let k = 0; k < 2; k++) {   // anéis de pulso depois do toque
-    const p = prog(f, 1700 + k * 30, 1760 + k * 30, E.outC);
+  for (let k = 0; k < 2; k++) {   // anéis de pulso depois do toque (repetem até o fim)
+    const p = f < 1700 ? 0 : E.outC(((f - 1700 + k * 30) % 60) / 60);
     if (p > 0 && p < 1) { ctx.save(); ctx.globalAlpha = (1 - p) * .5; ctx.strokeStyle = GREEN; ctx.lineWidth = 6; rr(ctx, -w / 2 - p * 40, -h / 2 - p * 40, w + p * 80, h + p * 80, h / 2 + p * 40); ctx.stroke(); ctx.restore(); }
   }
   ctx.save(); ctx.shadowColor = 'rgba(37,211,102,.45)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 14;
@@ -310,7 +310,7 @@ function waButton(ctx, f, { y, start }) {
 const PILLS = [['Mais avaliações', 1232], ['Mais clientes', 1319], ['Mais vendas', 1444]];
 function pills(ctx, f, ex) {
   PILLS.forEach(([t, st], i) => {
-    const y = 940 + i * 112, s = spring(f, st, { k: 120, c: 14 });
+    const y = 940 + i * 112 + Math.sin(f / 36 + i * 1.3) * 7, s = spring(f, st, { k: 120, c: 14 }) * (1 + .02 * Math.sin(f / 30 + i));
     if (s <= .01) return;
     const last = i === 2, w = lerp(90, last ? 560 : 520, clamp(s)), h = 92;
     ctx.save(); ctx.globalAlpha = clamp(s * 2) * (1 - ex); ctx.filter = blur(ex * 20); ctx.translate(CX, y - ex * 40);
@@ -434,9 +434,9 @@ function scene(ctx, f) {
   // --- cartão recriado + pílulas (1215–1530); cartão sobe para a chamada final ---
   if (f >= 1214) {
     const ins = spring(f, 1216, { k: 80, c: 14 }), fin = prog(f, 1512, 1560, E.smooth);
-    const sc = lerp(.95, .66, fin) * (1 + .03 * prog(f, 1216, 1800, E.lin));
-    const x = lerp(CX + 760, CX, ins), y = lerp(560, 490, fin) - prog(f, 1216, 1800, E.lin) * 14;
-    const rot = lerp(.3, -.05, ins) + Math.sin(f / 70) * .015;
+    const sc = lerp(.95, .66, fin) * (1 + .03 * prog(f, 1216, 1800, E.lin) + .025 * Math.sin(f / 38));
+    const x = lerp(CX + 760, CX, ins) + Math.sin(f / 61) * 14, y = lerp(560, 490, fin) - prog(f, 1216, 1800, E.lin) * 14 + Math.sin(f / 44) * 14;
+    const rot = lerp(.3, -.05, ins) + Math.sin(f / 52) * .04;
     sparks(ctx, f, x, y, 360 * sc / .95, ins);
     nfcCard(ctx, x, y, sc, rot, clamp(ins * 2));
     pills(ctx, f, prog(f, 1508, 1532, E.inC));
