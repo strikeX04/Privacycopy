@@ -376,7 +376,7 @@ function scene(ctx, f) {
     const dr = prog(f, 1526, 1800, E.lin);
     line(ctx, f, [['Quer o seu']], { y: 800 - dr * 10, size: 64, start: 1526, color: 'rgba(14,21,37,.75)', drift: dr * 3 });
     line(ctx, f, [['cartão?', O]], { y: 905 - dr * 12, size: 130, weight: 800, start: 1556, drift: dr * 5 });
-    line(ctx, f, [['Fale com a gente:']], { y: 1018 - dr * 10, size: 44, start: 1604, color: 'rgba(14,21,37,.6)', drift: dr * 3 });
+    words(ctx, f, [['Fale com a', 'rgba(14,21,37,.62)'], ['AUTOMA AGÊNCIA', O]], { x: CX, y: 1022 - dr * 10, size: 46, weight: 700, start: 1600, stagger: 3, dur: 28, ls: -.5, drift: dr * 3 });
     waButton(ctx, f, { y: 1150 - dr * 8, start: 1608 });
   }
   ctx.restore();
@@ -393,5 +393,5 @@ const BOARD = [
   [770, 'Pedir dá trabalho', 'mensagem sem resposta'], [900, 'Cartão NFC', 'celular vai até o cartão'],
   [985, 'Toque', 'ondas NFC'], [1205, 'Abre na hora', 'estrelas preenchidas'],
   [1330, 'Cartão real', 'foto + mais clientes'], [1490, 'Mais vendas', ''],
-  [1640, 'Quer o seu?', 'botão WhatsApp nasce'], [1790, 'Final', 'botão pulsando'],
+  [1660, 'Quer o seu?', 'AUTOMA AGÊNCIA + botão'], [1790, 'Final', 'botão pulsando'],
 ];
