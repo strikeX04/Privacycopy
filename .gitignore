@@ -1,3 +1,6 @@
 hook_*/
 __pycache__/
 *.pyc
+motion-studio/node_modules/
+motion-studio/.venv/
+motion-studio/projects/*/out/

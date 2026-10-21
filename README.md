@@ -35,3 +35,13 @@ link) e peça: "analisa o hook desse vídeo e adapta pro meu produto X".
 pip install -r .claude/skills/analisar-hook/scripts/requirements.txt   # precisa de ffmpeg
 python3 .claude/skills/analisar-hook/scripts/extrair_hook.py video.mp4 --segundos 6
 ```
+
+## Skill: motion-video
+
+Cria vídeos de motion design 100% em código (canvas quadro a quadro, render headless, sons
+sintetizados e mixagem com música/narração). A skill fica em `.claude/skills/motion-video/` e o
+estúdio em `motion-studio/` (engine, estilos, fontes, ferramentas e um projeto de exemplo).
+
+- Primeira vez: peça "Prepara o motion-studio para eu usar." (roda `bash motion-studio/tools/setup.sh`).
+- Depois: "Faz um vídeo em motion de 15s sobre...". Você aprova roteiro e storyboard antes do render.
+- Guia completo: `docs/motion-video-guia.pdf`.
