@@ -1,7 +1,7 @@
 {
   "_sobre": "Preferências desta pessoa. A skill motion-video lê no início e PERGUNTA o que estiver null (e grava a resposta aqui).",
   "editor": {
-    "software": null,
+    "software": "CapCut",
     "versao": null,
     "estudado": false,
     "molde": null,
@@ -9,7 +9,7 @@
     "ferramentas": []
   },
   "sfx": {
-    "fonte": null,
+    "fonte": "sintetizado",
     "biblioteca": null
   }
 }

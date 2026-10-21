@@ -4,3 +4,4 @@ __pycache__/
 motion-studio/node_modules/
 motion-studio/.venv/
 motion-studio/projects/*/out/
+motion-studio/.tmp/

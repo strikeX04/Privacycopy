@@ -9,7 +9,9 @@ const url = `http://127.0.0.1:${port}/engine/player.html?p=${encodeURIComponent(
 const browser = await puppeteer.launch({
   headless: true,
   protocolTimeout: 0,   // renders longos não podem expirar
-  args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'],
+  // Chromium recusa rodar como root (Linux em servidor/container) sem --no-sandbox
+  args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+    ...(process.getuid?.() === 0 ? ['--no-sandbox'] : [])],
 });
 const page = await browser.newPage();
 page.on('console', m => { const t = m.text(); if (/^frame |EXPORT_|Error/.test(t)) console.log(t); });

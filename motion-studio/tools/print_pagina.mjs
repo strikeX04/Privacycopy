@@ -3,7 +3,7 @@
 import puppeteer from 'puppeteer';
 const [url, out, flag] = process.argv.slice(2);
 if (!url || !out) { console.error('uso: node tools/print_pagina.mjs <url> <saida.png> [--full]'); process.exit(1); }
-const b = await puppeteer.launch({ headless: true });
+const b = await puppeteer.launch({ headless: true, args: process.getuid?.() === 0 ? ['--no-sandbox'] : [] });
 setTimeout(() => { b.close(); process.exit(2); }, 100000);
 const p = await b.newPage();
 await p.setViewport({ width: 430, height: 932, deviceScaleFactor: 2.5, isMobile: true });
