@@ -14,10 +14,12 @@ const SFX = [
   ['haptic', 46, .35, 0, { f: 100 }],
   ['typing', 156, .16, 0, { to: 236, step: 4.5 }],
   ['glasstaps', 250, .12, 0, { to: 290, step: 10 }],
-  ['clicks', 345, .07, .2, { to: 425, step: 4 }],
-  ['whoosh', 470, .2, 0, { dur: .5, f0: 300, f1: 3000, peak: .5 }],
-  ['ping', 560, .26, 0, { f: 2350 }],
-  ['whoosh', 612, .18, -.3, { dur: .4, f0: 600, f1: 4000, peak: .4 }],
+  ['whoosh', 318, .18, -.3, { dur: .4, f0: 500, f1: 3500, peak: .4 }],
+  ['haptic', 372, .35, 0, { f: 95 }],
+  ['glass', 390, .2, 0, { freq: 3400 }],
+  ['clicks', 396, .07, .2, { to: 450, step: 3 }],
+  ['ping', 464, .26, 0, { f: 2350 }],
+  ['whoosh', 598, .18, .3, { dur: .45, f0: 500, f1: 3800, peak: .4 }],
   ['glass', 636, .22, .2, { freq: 3800 }],
   ['glasstaps', 712, .06, .2, { to: 760, step: 12 }],
   ['swell', 806, .22, 0, { attack: .3 }],
@@ -70,6 +72,13 @@ function nfcWaves(g, x, y, s, color, a = 1, ph = 0) {
   }
   g.restore();
 }
+function sparks(ctx, f, x, y, R, a) {
+  for (let i = 0; i < 6; i++) {
+    const ang = i / 6 * TAU + f * .006, r2 = R * (1 + .08 * Math.sin(f / 50 + i));
+    ctx.save(); ctx.globalAlpha = a * (.5 + .4 * Math.sin(f / 30 + i));
+    star(ctx, x + Math.cos(ang) * r2, y + Math.sin(ang) * r2 * .62, 10 + (i % 3) * 4, 1); ctx.restore();
+  }
+}
 // linha de texto centralizada (blur-in por palavra)
 function line(ctx, f, parts, { y, size = 56, weight = 600, start = 0, exit = 0, color = K, drift = 0 }) {
   return words(ctx, f, parts, { x: CX, y, size, weight, start, color, exit, drift, dur: 28, stagger: 3, ls: -1 });
@@ -78,7 +87,7 @@ function line(ctx, f, parts, { y, size = 56, weight = 600, start = 0, exit = 0, 
 // ---------- celular (a tela é desenhada num canvas próprio) ----------
 const PW = 360, PH = 740, SW = 332, SH = 712, SR = 2;
 const scr = mk(SW * SR, SH * SR);
-const SHOPS = [['Concorrente A', 4.8, 312], ['Concorrente B', 4.7, 205], ['Concorrente C', 4.6, 131], ['Sua Loja', 4.1, 12]];
+const SHOPS = [['Concorrente A', 4.8, 312], ['Concorrente B', 4.6, 205], ['Concorrente C', 4.5, 131], ['Sua Loja', 4.7, 15]];
 const QUERY = 'loja perto de mim';
 
 function screenSearch(g, f) {
@@ -109,7 +118,7 @@ function screenSearch(g, f) {
   g.restore(); g.restore();
   if (up <= 0) return;
   // resultados: Sua Loja ganha avaliações e sobe para o 1º lugar
-  const grow = prog(f, 345, 425, E.smooth), climb = prog(f, 468, 540, E.smooth);
+  const grow = 0, climb = 0;   // a evolução real entra no card antes/depois
   SHOPS.forEach(([name, r0, n0], i) => {
     const me = i === 3;
     const slot = me ? lerp(3, 0, climb) : i + climb;
@@ -128,7 +137,7 @@ function screenSearch(g, f) {
     txt(g, rating.toFixed(1).replace('.', ','), 122, y + 72, 18, 700, '#3B4656');
     stars(g, 168, y + 71, 9, rating, 2.2);
     txt(g, `(${count})`, 268, y + 72, 17, 500, me && grow > 0 ? O : '#8A94A3');
-    if (me && f > 548) {
+    if (me && climb > .99) {
       const b = spring(f, 550, { k: 200, c: 15 });
       g.save(); g.translate(SW - 52, y + 30); g.scale(b, b); g.fillStyle = O; rr(g, -26, -16, 52, 32, 16); g.fill();
       txt(g, '1º', 0, 1, 18, 800, '#fff', 'center'); g.restore();
@@ -203,12 +212,7 @@ function screenReview(g, f) {
 function drawScreen(f) {
   const g = scr.getContext('2d');
   g.setTransform(SR, 0, 0, SR, 0, 0); g.clearRect(0, 0, SW, SH);
-  if (f < 612) return screenSearch(g, f);
-  if (f < 640) {   // busca desliza para a esquerda, conversa entra
-    const p = E.inOutC(prog(f, 612, 640));
-    g.save(); g.translate(-p * SW, 0); screenSearch(g, f); g.restore();
-    g.save(); g.translate((1 - p) * SW, 0); screenChat(g, f); g.restore(); return;
-  }
+  if (f < 590) return screenSearch(g, f);
   if (f < 800) return screenChat(g, f);
   if (f < 975) return screenTap(g, f);
   const p = E.smooth(prog(f, 975, 1010));   // página de avaliação sobe por cima
@@ -225,25 +229,44 @@ function phoneAt(ctx, f, x, y, s, rot) {
   ctx.restore();
 }
 
-// ---------- cartão NFC (desenho próprio, sem logo do Google) ----------
+// ---------- cartão NFC (recriado do produto real) ----------
 const CW = 620, CH = 390, card = mk(CW * 2, CH * 2);
 let cardReady = false;
+function gMark(g, x, y, r) {   // "G" de quatro cores dentro do círculo branco, como no cartão
+  g.save(); g.fillStyle = '#fff'; circle(g, x, y, r); g.fill();
+  const R = r * .6, lw = r * .27;
+  g.lineWidth = lw;
+  const seg = (a0, a1, c) => { g.strokeStyle = c; g.beginPath(); g.arc(x, y, R, a0 * Math.PI, a1 * Math.PI); g.stroke(); };
+  seg(0, .26, '#4285F4'); seg(.25, .76, '#34A853'); seg(.75, 1.14, '#FBBC05'); seg(1.13, 1.76, '#EA4335');
+  g.fillStyle = '#4285F4'; g.fillRect(x - lw * .1, y - lw / 2, R + lw / 2, lw);
+  g.restore();
+}
+function handPhone(g, x, y, s) {   // ícone de traço: celular encostando + ondas
+  g.save(); g.translate(x, y); g.scale(s, s); g.strokeStyle = K; g.lineWidth = 4; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.save(); g.rotate(-.18); rr(g, -26, -44, 52, 88, 10); g.stroke(); g.beginPath(); g.moveTo(-8, 34); g.lineTo(8, 34); g.stroke(); g.restore();
+  g.beginPath(); g.moveTo(-40, 50); g.quadraticCurveTo(-34, 20, -14, 26); g.lineTo(6, 34); g.stroke();
+  for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(30, -6, 16 + i * 11, -.75, .75); g.stroke(); }
+  g.restore();
+}
 function buildCard() {   // desenhado só depois das fontes carregarem
   cardReady = true;
   const g = card.getContext('2d'); g.scale(2, 2);
-  rr(g, 0, 0, CW, CH, 34); g.save(); g.clip();
+  rr(g, 0, 0, CW, CH, 30); g.save(); g.clip();
   g.fillStyle = '#fff'; g.fillRect(0, 0, CW, CH);
-  g.fillStyle = '#1F6FE5'; g.beginPath(); g.moveTo(230, 0); g.lineTo(CW, 0); g.lineTo(CW, CH); g.lineTo(300, CH);
-  g.bezierCurveTo(200, 260, 200, 120, 230, 0); g.fill();
-  // lado branco: selo NFC
-  rr(g, 46, 214, 120, 120, 26); g.fillStyle = '#11151C'; g.fill();
-  nfcWaves(g, 112, 274, 1.25, '#fff');
-  txt(g, 'Aproxime', 106, 120, 24, 800, K, 'center');
-  txt(g, 'seu celular', 106, 150, 20, 600, '#5F6B7A', 'center');
-  // lado azul
-  txt(g, 'Avalie a gente', 430, 120, 30, 600, '#fff', 'center');
-  txt(g, 'no Google', 430, 168, 46, 800, '#fff', 'center');
-  stars(g, 340, 238, 17, 5, 2.6, GOLD, 'rgba(255,255,255,.3)');
+  g.fillStyle = '#1F6FE5'; g.beginPath(); g.moveTo(250, 0); g.lineTo(CW, 0); g.lineTo(CW, CH); g.lineTo(330, CH);
+  g.bezierCurveTo(220, 270, 210, 110, 250, 0); g.fill();
+  // lado branco: ícone, texto e selo NFC
+  handPhone(g, 108, 92, 1);
+  txt(g, 'Aproxime seu', 106, 190, 22, 700, K, 'center');
+  txt(g, 'celular', 106, 216, 22, 700, K, 'center');
+  rr(g, 56, 248, 104, 104, 22); g.fillStyle = '#11151C'; g.fill();
+  nfcWaves(g, 128, 300, .9, '#fff');
+  txt(g, 'NFC', 84, 301, 20, 800, '#fff', 'center');
+  // lado azul: G, texto e estrelas
+  gMark(g, 440, 92, 56);
+  txt(g, 'Avalie a gente', 440, 194, 30, 600, '#fff', 'center');
+  txt(g, 'no Google', 440, 240, 48, 800, '#fff', 'center');
+  stars(g, 360, 310, 17, 5, 2.4, GOLD, 'rgba(255,255,255,.3)');
   g.restore();
 }
 function nfcCard(ctx, x, y, s, rot, a = 1) {
@@ -308,6 +331,58 @@ function pills(ctx, f, ex) {
   });
 }
 
+
+// ---------- antes e depois real (loja de móveis em Ananindeua) ----------
+function beforeAfter(ctx, f) {
+  if (f < 326 || f > 640) return;
+  const pw = prog(f, 326, 350, E.smooth), ph = prog(f, 340, 372, E.smooth), ex = prog(f, 596, 628, E.inC);
+  const W2 = lerp(330, 940, pw), H2 = lerp(100, 500, ph);
+  const x = CX - ex * 1150, y = lerp(870, 620, ph) - prog(f, 372, 600, E.lin) * 16;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-ex * .14 + Math.sin(f / 90) * .008); ctx.filter = blur(ex * 30);
+  ctx.save(); ctx.filter = blur(46 + ex * 30); ctx.fillStyle = 'rgba(14,21,37,.35)'; rr(ctx, -W2 / 2 + 30, -H2 / 2 + 50, W2 - 60, H2, 48); ctx.fill(); ctx.restore();
+  rr(ctx, -W2 / 2, -H2 / 2, W2, H2, Math.min(48, H2 / 2)); ctx.fillStyle = '#202227'; ctx.fill();
+  const ca = prog(f, 364, 384, E.out5);
+  if (ca > 0) {
+    ctx.globalAlpha = ca;
+    const k = prog(f, 394, 452, E.smooth), after = f >= 392, x0 = -W2 / 2 + 64;
+    // etiqueta ANTES → DEPOIS (achata e troca)
+    const sq = 1 - .92 * Math.sin(Math.PI * prog(f, 384, 400)), tw = after ? 196 : 162;
+    ctx.save(); ctx.translate(x0, -H2 / 2 + 68); ctx.scale(1, sq);
+    rr(ctx, 0, -28, tw, 56, 28); ctx.fillStyle = after ? '#34C26A' : '#5F6672'; ctx.fill();
+    txt(ctx, after ? 'DEPOIS' : 'ANTES', tw / 2, 2, 28, 800, '#fff', 'center'); ctx.restore();
+    // nota ★ (avaliações)
+    const rating = lerp(4.7, 4.9, k), count = Math.round(lerp(15, 85, k));
+    const rs = (Math.round(rating * 10) / 10).toFixed(1).replace('.', ',');
+    const pulse = 1 + .05 * Math.sin(Math.PI * prog(f, 450, 470));
+    ctx.save(); ctx.translate(x0, -52); ctx.scale(pulse, pulse);
+    ctx.font = font(500, 104); const w1 = ctx.measureText(rs).width;
+    txt(ctx, rs, 0, 0, 104, 500, '#C4C7CC');
+    star(ctx, w1 + 50, -4, 40, 1);
+    txt(ctx, `(${count})`, w1 + 104, 0, 104, 500, '#8AB4F8');
+    ctx.restore();
+    txt(ctx, 'Loja de móveis em Ananindeua, Pará', x0, 46, 36, 500, '#9AA0A6');
+    // abas
+    let tx = x0;
+    ['Visão geral', 'Fotos', 'Sobre', 'Avaliações'].forEach((t, i) => {
+      ctx.font = font(600, 28); const w = ctx.measureText(t).width + 48;
+      rr(ctx, tx, 118, w, 66, 33);
+      if (i === 0) { ctx.strokeStyle = '#E8EAED'; ctx.lineWidth = 3; ctx.stroke(); }
+      else { ctx.fillStyle = i === 3 ? `rgba(138,180,248,${.15 + .25 * k})` : '#3A3D44'; ctx.fill(); }
+      txt(ctx, t, tx + w / 2, 152, 28, 600, '#E8EAED', 'center'); tx += w + 14;
+    });
+  }
+  // selo +70 avaliações
+  const bs = spring(f, 462, { k: 150, c: 14 });
+  if (bs > .01) {
+    ctx.save(); ctx.translate(W2 / 2 - 170, -H2 / 2 - 6); ctx.rotate(.05); ctx.scale(bs, bs);
+    ctx.shadowColor = 'rgba(52,194,106,.45)'; ctx.shadowBlur = 30;
+    rr(ctx, -170, -40, 340, 80, 40); ctx.fillStyle = '#34C26A'; ctx.fill(); ctx.shadowBlur = 0;
+    txt(ctx, '+70 avaliações', 0, 2, 38, 800, '#fff', 'center'); ctx.restore();
+  }
+  ctx.restore();
+  words(ctx, f, [['Resultado real de um cliente', 'rgba(14,21,37,.55)']], { x: CX - ex * 1150, y: 935, size: 34, weight: 600, start: 478, stagger: 3, dur: 26, exit: ex, ls: -.3 });
+}
+
 // ============================================================
 // PLANO ÚNICO
 // ============================================================
@@ -324,6 +399,8 @@ function scene(ctx, f) {
     x = lerp(x, 760, up); y = lerp(y, 420, up); s = lerp(1, .7, up); rot = lerp(rot, .32, up);
     x = lerp(x, 640, dn); y = lerp(y, 610, dn); rot = lerp(rot, .12, dn);
     x = lerp(x, CX, back); y = lerp(y, 610, back); s = lerp(s, 1, back); rot = lerp(rot, Math.sin(f / 80) * .015, back);
+    const gone = prog(f, 318, 346, E.inC), ret = prog(f, 592, 640, E.smooth), mv = f < 470 ? gone : 1 - ret;
+    x += (f < 470 ? -1 : 1) * mv * 1250; rot += (f < 470 ? -.2 : .2) * mv;
     const out = prog(f, 1212, 1250, E.inC);
     y -= out * 1300; rot -= out * .15;
     // cartão NFC (embaixo do celular durante o toque)
@@ -334,8 +411,9 @@ function scene(ctx, f) {
       const p = prog(f, 958 + k * 14, 1010 + k * 14, E.outC);
       if (p > 0 && p < 1) { ctx.save(); ctx.globalAlpha = (1 - p) * .7; ctx.strokeStyle = O; ctx.lineWidth = 8; circle(ctx, 610, 760, 60 + p * 300); ctx.stroke(); ctx.restore(); }
     }
-    layer(ctx, 1, out * 24, L => phoneAt(L, f, x, y, s, rot));
+    if (mv < .999) layer(ctx, 1, out * 24 + mv * 30, L => phoneAt(L, f, x, y, s, rot));
   }
+  beforeAfter(ctx, f);
 
   // --- textos (pequeno em YS, grande em YB) ---
   const T = [
@@ -353,23 +431,14 @@ function scene(ctx, f) {
     line(ctx, f, bg2, { y: YB - dr * 12, size: 100, weight: 800, start: bs, exit: ex, drift: dr * 5 });
   });
 
-  // --- foto do cartão real + pílulas (1215–1530) e chamada final ---
-  const IMGF = IMG('cartao-foto.jpg');
-  if (f >= 1214 && IMGF) {
+  // --- cartão recriado + pílulas (1215–1530); cartão sobe para a chamada final ---
+  if (f >= 1214) {
     const ins = spring(f, 1216, { k: 80, c: 14 }), fin = prog(f, 1512, 1560, E.smooth);
-    const w = lerp(470, 330, fin), h = w * IMGF.height / IMGF.width;
-    const x = lerp(CX + 700, CX, ins), y = lerp(560, 480, fin) - prog(f, 1216, 1800, E.lin) * 14;
-    const rot = lerp(.18, -.035, ins) + Math.sin(f / 70) * .012;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
-    ctx.save(); ctx.filter = blur(40); ctx.fillStyle = 'rgba(14,21,37,.3)'; rr(ctx, -w / 2 + 20, -h / 2 + 40, w - 40, h, 36); ctx.fill(); ctx.restore();
-    rr(ctx, -w / 2 - 10, -h / 2 - 10, w + 20, h + 20, 40); ctx.fillStyle = '#fff'; ctx.fill();
-    ctx.save(); rr(ctx, -w / 2, -h / 2, w, h, 32); ctx.clip(); ctx.drawImage(IMGF, -w / 2, -h / 2, w, h); ctx.restore();
-    // selo "o cartão de verdade"
-    const tg = spring(f, 1246, { k: 140, c: 14 });
-    ctx.save(); ctx.translate(-w / 2 + 30, h / 2 - 10); ctx.scale(tg, tg); ctx.rotate(-.04);
-    rr(ctx, 0, -30, 300, 60, 30); ctx.fillStyle = K; ctx.fill();
-    txt(ctx, 'Cartão NFC real', 150, 1, 28, 700, '#fff', 'center'); ctx.restore();
-    ctx.restore();
+    const sc = lerp(.95, .66, fin) * (1 + .03 * prog(f, 1216, 1800, E.lin));
+    const x = lerp(CX + 760, CX, ins), y = lerp(560, 490, fin) - prog(f, 1216, 1800, E.lin) * 14;
+    const rot = lerp(.3, -.05, ins) + Math.sin(f / 70) * .015;
+    sparks(ctx, f, x, y, 360 * sc / .95, ins);
+    nfcCard(ctx, x, y, sc, rot, clamp(ins * 2));
     pills(ctx, f, prog(f, 1508, 1532, E.inC));
   }
   if (f >= 1520) {
@@ -388,10 +457,10 @@ function scene(ctx, f) {
 const SC = [{ a: 0, fn: scene }];
 const TR = [];
 const BOARD = [
-  [120, 'Belém', 'celular entra com o mapa'], [300, 'A sua loja aparece?', 'Sua Loja lá embaixo'],
-  [430, '+ avaliações', '12 → 148, nota sobe'], [590, '1º lugar', 'Sua Loja sobe na lista'],
+  [120, 'Belém', 'celular entra com o mapa'], [300, 'A sua loja aparece?', 'Sua Loja 4,7 (15) lá embaixo'],
+  [380, 'ANTES', 'card nasce da linha Sua Loja'], [560, 'DEPOIS', '4,9 (85) · +70 avaliações'],
   [770, 'Pedir dá trabalho', 'mensagem sem resposta'], [900, 'Cartão NFC', 'celular vai até o cartão'],
   [985, 'Toque', 'ondas NFC'], [1205, 'Abre na hora', 'estrelas preenchidas'],
-  [1330, 'Cartão real', 'foto + mais clientes'], [1490, 'Mais vendas', ''],
+  [1340, 'Cartão', 'mais avaliações, mais clientes'], [1490, 'Mais vendas', ''],
   [1660, 'Quer o seu?', 'AUTOMA AGÊNCIA + botão'], [1790, 'Final', 'botão pulsando'],
 ];
