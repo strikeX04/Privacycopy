@@ -245,6 +245,8 @@ def place(sig, frame, gain=1.0, pan=0.0, panFrom=None, panTo=None):
         p = np.full(len(sig), pan)
     st = np.stack([sig * np.cos((p + 1) * np.pi / 4), sig * np.sin((p + 1) * np.pi / 4)], 1) * np.sqrt(2)
     i = int(frame / FPS * SR)
+    if i < 0:   # som que começaria antes do vídeo (ex.: swell no início): corta o trecho anterior ao frame 0
+        st, i = st[-i:], 0
     j = min(N, i + len(st))
     if i < N:
         mix[i:j] += st[: j - i] * gain
