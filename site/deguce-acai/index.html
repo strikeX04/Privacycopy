@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deguce Açaí | Monte seu açaí e peça pelo WhatsApp</title>
+  <meta name="description" content="Deguce Açaí: açaí fresquinho do jeito que você gosta. Monte seu pedido no site e envie direto pelo WhatsApp.">
+  <meta name="theme-color" content="#4a1a4f">
+  <meta property="og:title" content="Deguce Açaí">
+  <meta property="og:description" content="Monte seu açaí e peça direto pelo WhatsApp.">
+  <meta property="og:image" content="assets/logo.jpg">
+  <link rel="icon" href="assets/icon-180.png">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Satisfy&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topo">
+    <div class="wrap topo__in">
+      <a href="#inicio" class="marca">
+        <img src="assets/logo.jpg" alt="Logo Deguce Açaí" width="44" height="44">
+        <span>Deguce <em>açaí</em></span>
+      </a>
+      <nav class="menu" aria-label="Seções">
+        <a href="#cardapio">Cardápio</a>
+        <a href="#pedido">Montar pedido</a>
+        <a href="#onde">Onde estamos</a>
+      </nav>
+      <a href="#pedido" class="btn btn--sm">Pedir agora</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- INÍCIO -->
+    <section id="inicio" class="hero">
+      <div class="wrap hero__in">
+        <div class="hero__txt">
+          <p class="kicker">Batido na hora</p>
+          <h1>O açaí que você gosta, <span class="script">do seu jeito.</span></h1>
+          <p class="lead">Escolha o tipo, o tamanho e os acompanhamentos. Seu pedido vai pronto pro nosso WhatsApp em poucos toques.</p>
+          <div class="hero__cta">
+            <a href="#pedido" class="btn">Montar meu açaí</a>
+            <a href="#onde" class="btn btn--ghost">Ver endereço</a>
+          </div>
+        </div>
+        <div class="hero__logo">
+          <img src="assets/logo.jpg" alt="Deguce Açaí" width="480" height="480">
+        </div>
+      </div>
+    </section>
+
+    <!-- COMO FUNCIONA -->
+    <section class="passos">
+      <div class="wrap">
+        <ol class="passos__lista">
+          <li><b>1</b><div><h3>Monte</h3><p>Tipo, tamanho e acompanhamentos.</p></div></li>
+          <li><b>2</b><div><h3>Informe</h3><p>Seu nome, entrega ou retirada e pagamento.</p></div></li>
+          <li><b>3</b><div><h3>Envie</h3><p>O pedido abre pronto no WhatsApp. É só mandar.</p></div></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- CARDÁPIO -->
+    <section id="cardapio" class="secao">
+      <div class="wrap">
+        <h2>Nosso açaí</h2>
+        <p class="sub">Do fino ao grosso, do jeito paraense ou na tigela. Você escolhe.</p>
+        <div class="cards" id="cards-tipos"></div>
+      </div>
+    </section>
+
+    <!-- PEDIDO -->
+    <section id="pedido" class="secao secao--roxa">
+      <div class="wrap">
+        <h2>Monte seu pedido</h2>
+        <p class="sub">Selecione tudo e toque em <b>Enviar no WhatsApp</b>.</p>
+
+        <div class="pedido">
+          <form id="form-item" class="painel" novalidate>
+            <fieldset>
+              <legend>1. Tipo de açaí</legend>
+              <div class="opcoes" id="op-tipo"></div>
+            </fieldset>
+
+            <fieldset>
+              <legend>2. Tamanho</legend>
+              <div class="opcoes" id="op-tamanho"></div>
+            </fieldset>
+
+            <fieldset>
+              <legend>3. Acompanhamentos <small>(opcional, pode marcar vários)</small></legend>
+              <div class="opcoes opcoes--chips" id="op-acomp"></div>
+            </fieldset>
+
+            <fieldset class="linha">
+              <legend>4. Quantidade</legend>
+              <div class="qtd">
+                <button type="button" id="qtd-menos" aria-label="Diminuir">−</button>
+                <output id="qtd-valor">1</output>
+                <button type="button" id="qtd-mais" aria-label="Aumentar">+</button>
+              </div>
+            </fieldset>
+
+            <p class="erro" id="erro-item" role="alert"></p>
+            <button type="submit" class="btn btn--claro btn--full">+ Adicionar ao pedido</button>
+          </form>
+
+          <form id="form-envio" class="painel" novalidate>
+            <div class="carrinho">
+              <h3>Seu pedido</h3>
+              <ul id="lista-itens"><li class="vazio">Nenhum açaí adicionado ainda.</li></ul>
+            </div>
+
+            <label>Seu nome
+              <input type="text" id="nome" autocomplete="name" placeholder="Como podemos te chamar?">
+            </label>
+
+            <fieldset>
+              <legend>Entrega ou retirada?</legend>
+              <div class="opcoes">
+                <label class="op"><input type="radio" name="modo" value="Entrega" checked><span>Entrega</span></label>
+                <label class="op"><input type="radio" name="modo" value="Retirada na loja"><span>Vou buscar</span></label>
+              </div>
+            </fieldset>
+
+            <div id="bloco-endereco">
+              <label>Endereço de entrega
+                <input type="text" id="endereco" autocomplete="street-address" placeholder="Rua, número e bairro">
+              </label>
+              <label>Ponto de referência <small>(opcional)</small>
+                <input type="text" id="referencia" placeholder="Ex.: perto da praça">
+              </label>
+            </div>
+
+            <fieldset>
+              <legend>Pagamento</legend>
+              <div class="opcoes" id="op-pagamento"></div>
+            </fieldset>
+
+            <label id="bloco-troco" hidden>Troco para quanto? <small>(opcional)</small>
+              <input type="text" id="troco" inputmode="decimal" placeholder="Ex.: R$ 50">
+            </label>
+
+            <label>Observações <small>(opcional)</small>
+              <textarea id="obs" rows="3" placeholder="Ex.: sem açúcar, bem gelado, separar a farinha…"></textarea>
+            </label>
+
+            <p class="erro" id="erro-envio" role="alert"></p>
+            <button type="submit" class="btn btn--zap btn--full">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3Z"/></svg>
+              Enviar no WhatsApp
+            </button>
+            <p class="nota">Abre o WhatsApp com o pedido já escrito. Nada é enviado sem você tocar em enviar.</p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ONDE ESTAMOS -->
+    <section id="onde" class="secao">
+      <div class="wrap onde">
+        <div class="onde__txt">
+          <h2>Onde estamos</h2>
+          <p class="endereco" id="txt-endereco"></p>
+          <p class="horario" id="txt-horario"></p>
+          <div class="onde__cta">
+            <a class="btn" id="link-rota" target="_blank" rel="noopener">Como chegar</a>
+            <a class="btn btn--ghost" id="link-zap" target="_blank" rel="noopener">Falar no WhatsApp</a>
+          </div>
+        </div>
+        <div class="mapa" id="mapa"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="rodape">
+    <div class="wrap rodape__in">
+      <img src="assets/logo.jpg" alt="" width="64" height="64">
+      <p><b>Deguce Açaí</b></p>
+      <p class="rodape__links">
+        <a id="rod-insta" target="_blank" rel="noopener">Instagram</a> ·
+        <a id="rod-zap" target="_blank" rel="noopener">WhatsApp</a>
+      </p>
+      <p class="pequeno">© <span id="ano"></span> Deguce Açaí</p>
+    </div>
+  </footer>
+
+  <a class="zap-flutuante" id="zap-flutuante" target="_blank" rel="noopener" aria-label="Falar no WhatsApp">
+    <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3Z"/></svg>
+  </a>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
