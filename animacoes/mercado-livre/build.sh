@@ -7,9 +7,17 @@ NODE_PATH=$B/node_modules $B/node_modules/.bin/esbuild src/cena.js --bundle --fo
 python3 - "$B/cena.bundle.js" <<'PY'
 import sys
 js = open(sys.argv[1]).read().replace('</script', '<\\/script')
-logo = ''
-try: logo = open('src/logo.js').read()
-except FileNotFoundError: pass
+import base64
+def uri(f): return 'data:image/png;base64,' + base64.b64encode(open('src/logo/' + f, 'rb').read()).decode()
+logo = """
+// logo do usuário: carrega as imagens e só então liga a cena
+(function () {
+  const fontes = { LOGO_EMBLEMA: '%s', LOGO_LINHA: '%s', LOGO_NOME: '%s' };
+  const nomes = Object.keys(fontes); let faltam = nomes.length;
+  nomes.forEach((n) => { const im = new Image(); im.onload = () => { window[n] = im; if (--faltam === 0) liga(); }; im.src = fontes[n]; });
+  function liga() { const s = document.createElement('script'); s.textContent = document.getElementById('cena').textContent; document.body.appendChild(s); }
+})();
+""" % (uri('emblema.png'), uri('emblema_linha.png'), uri('nome.png'))
 html = '''<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -22,8 +30,8 @@ html = '''<!doctype html>
 </head>
 <body>
 <canvas id="c"></canvas>
+<script id="cena" type="text/plain">''' + js + '''</script>
 <script>''' + logo + '''</script>
-<script>''' + js + '''</script>
 </body>
 </html>
 '''

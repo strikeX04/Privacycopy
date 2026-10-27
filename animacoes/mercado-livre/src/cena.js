@@ -98,6 +98,7 @@ function maoAperto(g, cx, cy, rx, ry, cor, linha, lw) {
 function emblema(g, cx, cy, w, h, estilo = 'cor', tinta = COR.navy) {
   const rx = w / 2, ry = h / 2;
   if (estilo === 'cor' && window.LOGO_EMBLEMA) { g.drawImage(window.LOGO_EMBLEMA, cx - rx, cy - ry, w, h); return; }
+  if (estilo === 'linha' && window.LOGO_LINHA) { g.drawImage(tingir(window.LOGO_LINHA, tinta), cx - rx, cy - ry, w, h); return; }
   g.save();
   if (estilo === 'cor') {
     g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = COR.navy; g.fill();
@@ -110,7 +111,20 @@ function emblema(g, cx, cy, w, h, estilo = 'cor', tinta = COR.navy) {
   }
   g.restore();
 }
+const _tintas = new Map();
+function tingir(img, cor) {
+  const k = img.src.length + cor; if (_tintas.has(k)) return _tintas.get(k);
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d');
+  g.drawImage(img, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = cor; g.fillRect(0, 0, c.width, c.height);
+  _tintas.set(k, c); return c;
+}
+const NOME_ASPECTO = window.LOGO_NOME ? window.LOGO_NOME.width / window.LOGO_NOME.height : 2.53;
 function marcaTexto(g, x, y, tam, cor, sombra = false) {
+  if (window.LOGO_NOME) {
+    const h = tam * 1.58, w = h * NOME_ASPECTO;
+    g.save(); if (sombra) { g.shadowColor = 'rgba(80,50,0,0.35)'; g.shadowBlur = tam * 0.05; g.shadowOffsetY = tam * 0.03; }
+    g.drawImage(tingir(window.LOGO_NOME, cor), x, y - tam * 0.74, w, h); g.restore(); return;
+  }
   g.save(); g.fillStyle = cor; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
   g.font = '800 ' + tam + 'px Inter, "Inter Display", sans-serif';
   try { g.letterSpacing = (-tam * 0.035) + 'px'; } catch (e) {}
@@ -429,8 +443,9 @@ for (let i = 0; i < 6; i++) {
 // telhado: tampa que fecha articulada na borda de trás, com o logo pintado
 const telhadoPiv = new THREE.Group(); telhadoPiv.position.set(0, ST + B.H, B.z0 - 0.06); galpao.add(telhadoPiv);
 const telhado = malha(new THREE.BoxGeometry(B.x1 - B.x0 + 0.24, 0.12, B.z1 - B.z0 + 0.24), mat('#f6c000', 0.5, 0.05)); telhado.position.set(0, 0.06, (B.z1 - B.z0 + 0.24) / 2); telhadoPiv.add(telhado);
-const texEmb = textura(1024, 706, (g, w, h) => emblema(g, w / 2, h / 2, w * 0.98, h * 0.98, 'cor'));
-const DEC = { w: 2.9, h: 2.9 * 0.69 };
+const EMB_ASP = window.LOGO_EMBLEMA ? window.LOGO_EMBLEMA.height / window.LOGO_EMBLEMA.width : 0.69;
+const texEmb = textura(1024, Math.round(1024 * EMB_ASP), (g, w, h) => emblema(g, w / 2, h / 2, w, h, 'cor'));
+const DEC = { w: 2.9, h: 2.9 * EMB_ASP };
 const decal = new THREE.Mesh(new THREE.PlaneGeometry(DEC.w, DEC.h), mat(0xffffff, 0.45, 0, { map: texEmb, transparent: true }));
 decal.rotation.x = -Math.PI / 2; decal.position.set(0, 0.125, (B.z1 - B.z0 + 0.24) / 2); decal.receiveShadow = true; telhadoPiv.add(decal);
 
@@ -458,22 +473,23 @@ const vanA = van(); mundo.add(vanA);
 const logo = new THREE.Group(); cena.add(logo);
 const disco = new THREE.Group(); logo.add(disco);
 {
-  const geo = new THREE.CylinderGeometry(0.5, 0.5, 0.06, 96); geo.scale(1, 1, 0.69); geo.rotateX(Math.PI / 2);
+  const geo = new THREE.CylinderGeometry(0.5, 0.5, 0.06, 96); geo.scale(1, 1, EMB_ASP); geo.rotateX(Math.PI / 2);
   disco.add(malha(geo, mat(COR.navy, 0.4, 0.1), false));
-  const frente = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.69), mat(0xffffff, 0.35, 0, { map: texEmb, transparent: true }));
+  const frente = new THREE.Mesh(new THREE.PlaneGeometry(1, EMB_ASP), mat(0xffffff, 0.35, 0, { map: texEmb, transparent: true }));
   frente.position.z = 0.0305; disco.add(frente);
 }
 const corte = new THREE.Plane(new THREE.Vector3(-1, 0, 0), -10);
-const texMarca = textura(1300, 760, (g, w, h) => { g.font = '800 100px Inter'; const k = (w - 40) / (g.measureText('mercado').width * 0.965); marcaTexto(g, 10, 100 * k * 0.95, Math.floor(100 * k), COR.navy, true); });
-const palavra = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.76), mat(0xffffff, 0.4, 0, { map: texMarca, transparent: true, clippingPlanes: [corte] }));
+const NOME_W = 1.43, NOME_H = NOME_W / NOME_ASPECTO;
+const texMarca = textura(1600, Math.round(1600 / NOME_ASPECTO) + 24, (g, w, h) => { g.save(); g.shadowColor = 'rgba(80,50,0,0.3)'; g.shadowBlur = 6; g.shadowOffsetY = 6; g.drawImage(window.LOGO_NOME ? tingir(window.LOGO_NOME, COR.navy) : g.canvas, 0, 6, w, w / NOME_ASPECTO); g.restore(); });
+const palavra = new THREE.Mesh(new THREE.PlaneGeometry(NOME_W, NOME_W * (Math.round(1600 / NOME_ASPECTO) + 24) / 1600), mat(0xffffff, 0.4, 0, { map: texMarca, transparent: true, clippingPlanes: [corte] }));
 logo.add(palavra);
-const LOGO_Y = 1.05, DISCO_W = 1.12;
+const LOGO_Y = 1.05, DISCO_W = 0.9;
 
 // ===================== CÂMERA =====================
 const CAM = {
   az: trilho([[0, -28], [3.3, -24], [3.8, -24], [4.9, -36], [5.7, -46], [7.5, -40], [8.45, 0], [11, 0]]),
   el: trilho([[0, 9], [3.3, 10], [3.8, 10], [4.25, 16], [4.9, 26], [5.7, 30], [7.5, 29], [8.45, 3.5], [11, 3.5]]),
-  R: trilho([[0, 10.6], [1.1, 10.2], [1.7, 10.7], [3.3, 10.4], [4.25, 10.6], [7.5, 10.4], [8.45, 11.2], [11, 11.0]]),
+  R: trilho([[0, 10.6], [1.1, 10.2], [1.7, 10.7], [3.3, 10.4], [4.25, 10.6], [7.5, 10.4], [8.45, 10.6], [11, 10.6]]),
   ty: trilho([[0, 0.92], [1.1, 0.92], [1.7, 1.3], [3.3, 1.3], [3.8, 1.2], [4.25, 0.62], [4.9, 0.45], [5.7, 0.34], [7.5, 0.33], [8.45, LOGO_Y], [11, LOGO_Y]]),
   tz: trilho([[0, 0], [4.25, 0], [5.7, 0.06], [7.5, 0.06], [8.45, 0]]),
   s: trilho([[0, 1], [3.85, 1], [4.25, 0.8], [4.6, 0.52], [4.95, 0.37], [5.5, 0.27], [5.9, 0.25], [7.5, 0.24]]),
@@ -583,7 +599,7 @@ function atualiza(t) {
   const roofY = (ST + B.H + 0.125) * s, roofZ = ((B.z0 - 0.06) + (B.z1 - B.z0 + 0.24) / 2) * s;
   const desliza = suave(progresso(t, 8.95, 0.55));
   const larguraFinal = DISCO_W;
-  const xFinal = mistura(0, -0.64, desliza) - 0.03 * desliza;
+  const xFinal = mistura(0, -0.78, desliza);
   disco.position.set(mistura(0, xFinal, 1) * (lp >= 1 ? 1 : 0) + (lp < 1 ? 0 : 0), mistura(roofY, LOGO_Y, le) + 0.35 * Math.sin(Math.PI * lp) + (lp >= 1 ? 0.02 * Math.sin((t - 8.5) * 2.2) : 0), mistura(roofZ, 0, le));
   if (lp >= 1) disco.position.x = xFinal;
   const w0 = DEC.w * s;
@@ -591,9 +607,9 @@ function atualiza(t) {
   disco.scale.set(esc, esc, esc * mistura(0.15, 1, le));
   disco.quaternion.copy(quat(-Math.PI / 2, 0, 0)).slerp(quat(0, 0, 0), le);
   disco.rotateY(mistura(0, Math.PI * 2, suave(progresso(t, 7.7, 0.8))));
-  const rv = suave(progresso(t, 9.05, 0.6));
-  palavra.position.set(mistura(0.42, 0.66, rv) - 0.03, LOGO_Y + 0.02 * Math.sin((t - 8.5) * 2.2) - 0.02, 0);
-  corte.constant = mistura(-0.2, 1.5, rv);
+  const rv = suave(progresso(t, 9.1, 0.6));
+  palavra.position.set(mistura(0.2, 0.52, rv), LOGO_Y + 0.02 * Math.sin((t - 8.5) * 2.2) - 0.01, -0.05);
+  corte.constant = mistura(-0.3, 1.4, rv);
   palavra.visible = t > 9.0;
 }
 
