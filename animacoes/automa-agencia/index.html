@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Automa Agência 9:16</title>
+<style>
+  html, body { margin: 0; background: #111; height: 100%; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; margin: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ===================== CONFIGURAÇÃO =====================
+const CONFIG = { largura: 1080, altura: 1920, fps: 30, duracao: 43, bpm: 100, semente: 7 };
+const COR = {
+  noite: '#0b0620', roxo: '#5b12ff', roxoVivo: '#7a3cff', roxoLuz: '#a98bff',
+  claro: '#f2effa', tinta: '#140b33', branco: '#ffffff', cinza: '#8f88a8',
+  verde: '#1fbf5b', verdeZap: '#0b7a5f', bolhaZap: '#d9fdd3',
+};
+const FONTE = '"Inter Display", Inter, system-ui, sans-serif';
+
+// ===================== AJUDANTES =====================
+function rng(semente) { let a = semente >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const limita = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const mistura = (a, b, p) => a + (b - a) * p;
+const progresso = (t, ini, dur) => limita((t - ini) / dur);
+const suave = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+const sai = (p) => 1 - Math.pow(1 - p, 3);
+const salto = (p) => { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+const L = CONFIG.largura, A = CONFIG.altura;
+
+let BLUR0 = 0; // desfoque de saída da cena, somado ao desfoque de cada palavra
+const filtro = (ctx, extra = 0) => { const b = BLUR0 + extra; ctx.filter = b > 0.05 ? 'blur(' + b.toFixed(2) + 'px)' : 'none'; };
+function fonte(ctx, tam, peso) { ctx.font = peso + ' ' + tam + 'px ' + FONTE; }
+
+// Linha de palavras que entram uma a uma com desfoque, como na referência.
+// palavras: [{w, t, b}] (b = destaque em negrito e cor). Centraliza em cx.
+function linha(ctx, palavras, cx, y, tam, t, corBase, corDestaque, opc = {}) {
+  const pesoBase = opc.peso || 500, pesoDest = opc.pesoDest || 800, max = opc.max || 950;
+  let tamReal = tam, medidas, total;
+  const mede = () => {
+    medidas = palavras.map((p) => { fonte(ctx, tamReal, p.b ? pesoDest : pesoBase); return ctx.measureText(p.w).width; });
+    fonte(ctx, tamReal, pesoBase); const esp = ctx.measureText(' ').width;
+    total = medidas.reduce((s, m) => s + m, 0) + esp * (palavras.length - 1); return esp;
+  };
+  let esp = mede();
+  if (total > max) { tamReal = tam * max / total; esp = mede(); }
+  let x = cx - total / 2;
+  const ga = ctx.globalAlpha;
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  palavras.forEach((p, i) => {
+    const k = sai(progresso(t, p.t, 0.4));
+    if (k > 0) {
+      ctx.globalAlpha = ga * k;
+      filtro(ctx, (1 - k) * 16);
+      fonte(ctx, tamReal, p.b ? pesoDest : pesoBase);
+      ctx.fillStyle = p.b ? corDestaque : corBase;
+      ctx.fillText(p.w, x, y + (1 - k) * 26);
+    }
+    x += medidas[i] + esp;
+  });
+  ctx.globalAlpha = ga; filtro(ctx);
+}
+
+function texto(ctx, s, x, y, tam, cor, peso = 700, alinha = 'center') {
+  fonte(ctx, tam, peso); ctx.fillStyle = cor; ctx.textAlign = alinha; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+
+function ponto(ctx, x, y, r, cor = COR.roxoVivo, brilho = 30) {
+  ctx.save(); ctx.shadowColor = cor; ctx.shadowBlur = brilho; ctx.fillStyle = cor;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+}
+
+function anel(ctx, x, y, r, cor, alfa, larg = 4) {
+  ctx.save(); ctx.globalAlpha *= alfa; ctx.strokeStyle = cor; ctx.lineWidth = larg;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+}
+
+function chip(ctx, s, cx, y, t, ini, escuro) {
+  const k = sai(progresso(t, ini, 0.4)); if (k <= 0) return;
+  ctx.save(); ctx.globalAlpha *= k;
+  fonte(ctx, 48, 600); const w = ctx.measureText(s).width + 120, h = 86;
+  ctx.fillStyle = escuro ? 'rgba(255,255,255,0.10)' : '#ffffff';
+  ctx.strokeStyle = escuro ? 'rgba(169,139,255,0.55)' : 'rgba(91,18,255,0.25)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(cx - w / 2, y - h / 2 + (1 - k) * 20, w, h, h / 2); ctx.fill(); ctx.stroke();
+  ponto(ctx, cx - w / 2 + 44, y + (1 - k) * 20, 9, escuro ? COR.roxoLuz : COR.roxo, 10);
+  texto(ctx, s, cx + 22, y + (1 - k) * 20, 48, escuro ? COR.branco : COR.tinta, 600);
+  ctx.restore();
+}
+
+// Símbolo da Automa desenhado em vetor a partir da logo enviada.
+// pTraco desenha o traço externo, pMiolo faz o miolo crescer.
+function simbolo(ctx, cx, cy, tamanho, cor, pTraco = 1, pMiolo = 1) {
+  const s = tamanho / 512, R = 209.5, comp = 262 + 1.5 * Math.PI * R + 111;
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-651, -584);
+  if (pTraco > 0) {
+    ctx.strokeStyle = cor; ctx.lineWidth = 93; ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+    if (pTraco < 1) ctx.setLineDash([comp * pTraco, comp + 20]);
+    ctx.beginPath(); ctx.moveTo(441.5, 325); ctx.lineTo(441.5, 587);
+    ctx.arc(651, 587, R, Math.PI, -Math.PI / 2, true); ctx.lineTo(540, 377.5); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (pMiolo > 0) {
+    ctx.translate(651, 588); ctx.scale(pMiolo, pMiolo); ctx.translate(-651, -588);
+    ctx.fillStyle = cor; ctx.beginPath(); ctx.moveTo(540, 475); ctx.lineTo(651, 475);
+    ctx.arc(651, 588, 113, -Math.PI / 2, Math.PI, false); ctx.lineTo(540, 475); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function cabecalho(ctx, escuro) {
+  const cor = escuro ? COR.branco : COR.tinta;
+  fonte(ctx, 36, 400); const w1 = ctx.measureText('automa ').width;
+  fonte(ctx, 36, 800); const w2 = ctx.measureText('agência').width;
+  const total = 52 + 16 + w1 + w2, x0 = L / 2 - total / 2, y = 150;
+  ctx.save(); ctx.globalAlpha = 0.9;
+  simbolo(ctx, x0 + 26, y, 52, cor);
+  texto(ctx, 'automa ', x0 + 68, y, 36, cor, 400, 'left');
+  texto(ctx, 'agência', x0 + 68 + w1, y, 36, cor, 800, 'left');
+  ctx.restore();
+}
+
+// Fachada de loja simples. p = entrada (0 a 1), acesa = brilho da placa (0 a 1).
+function loja(ctx, cx, base, w, placa, p, acesa, escuro = true) {
+  if (p <= 0) return;
+  const h = w * 0.72, topo = base - h, k = salto(p);
+  ctx.save(); ctx.globalAlpha *= limita(p * 2);
+  ctx.translate(cx, base); ctx.scale(k, k); ctx.translate(-cx, -base);
+  const linhaCor = escuro ? 'rgba(255,255,255,0.9)' : COR.tinta;
+  // corpo
+  ctx.fillStyle = escuro ? '#1b1044' : '#ffffff'; ctx.strokeStyle = linhaCor; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.roundRect(cx - w / 2, topo, w, h, 14); ctx.fill(); ctx.stroke();
+  // toldo listrado com ondinhas
+  const th = w * 0.17, faixas = 6, fw = w / faixas;
+  for (let i = 0; i < faixas; i++) {
+    ctx.fillStyle = i % 2 ? '#ffffff' : COR.roxo;
+    ctx.beginPath(); ctx.moveTo(cx - w / 2 + i * fw, topo); ctx.lineTo(cx - w / 2 + (i + 1) * fw, topo);
+    ctx.lineTo(cx - w / 2 + (i + 1) * fw, topo + th);
+    ctx.arc(cx - w / 2 + i * fw + fw / 2, topo + th, fw / 2, 0, Math.PI, false); ctx.closePath(); ctx.fill();
+  }
+  // placa
+  const ph = w * 0.19, pw = w * 0.9, py = topo - ph - 12;
+  ctx.save();
+  ctx.shadowColor = COR.roxoVivo; ctx.shadowBlur = 50 * acesa;
+  ctx.fillStyle = 'rgba(91,18,255,' + (0.25 + 0.75 * acesa).toFixed(3) + ')';
+  ctx.beginPath(); ctx.roundRect(cx - pw / 2, py, pw, ph, 12); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.globalAlpha *= 0.45 + 0.55 * acesa;
+  fonte(ctx, 48, 800); const tw = ctx.measureText(placa).width; const tam = Math.min(48 * w / 420, 48 * (pw - 30) / tw);
+  texto(ctx, placa, cx, py + ph / 2 + 2, Math.max(48, tam), '#ffffff', 800); ctx.restore();
+  // vitrine e porta
+  const vy = topo + th + w * 0.12, vh = h - th - w * 0.12 - 30;
+  ctx.fillStyle = escuro ? 'rgba(169,139,255,' + (0.12 + 0.25 * acesa).toFixed(3) + ')' : '#e9e3fb';
+  ctx.strokeStyle = linhaCor; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.roundRect(cx - w * 0.42, vy, w * 0.46, vh * 0.62, 8); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(cx + w * 0.1, vy, w * 0.3, base - vy, [10, 10, 0, 0]); ctx.fill(); ctx.stroke();
+  ponto(ctx, cx + w * 0.15, vy + (base - vy) * 0.55, 7, '#ffffff', 0);
+  ctx.restore();
+}
+const portaDe = (cx, base, w) => ({ x: cx + w * 0.25, y: base - (w * 0.72 - w * 0.17 - w * 0.12) * 0.45 });
+
+function celular(ctx, cx, topo, w, h, tela, k = 1) {
+  ctx.save();
+  ctx.translate(cx, topo + h / 2); ctx.scale(mistura(0.9, 1, k), mistura(0.9, 1, k)); ctx.translate(-cx, -(topo + h / 2));
+  ctx.globalAlpha *= limita(k * 1.5);
+  ctx.shadowColor = 'rgba(20,11,51,0.35)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+  ctx.fillStyle = '#0e0a1f'; ctx.beginPath(); ctx.roundRect(cx - w / 2, topo, w, h, 70); ctx.fill();
+  ctx.shadowColor = 'transparent';
+  const b = 18, s = { x: cx - w / 2 + b, y: topo + b, w: w - 2 * b, h: h - 2 * b };
+  ctx.fillStyle = tela; ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, 54); ctx.fill();
+  ctx.fillStyle = '#0e0a1f'; ctx.beginPath(); ctx.roundRect(cx - 70, s.y + 16, 140, 34, 17); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, 54); ctx.clip();
+  return s; // o chamador desenha a tela e chama ctx.restore()
+}
+
+function estrelas(ctx, x, y, n, tam, cor, vazia) {
+  for (let i = 0; i < 5; i++) {
+    const cx = x + i * tam * 1.15 + tam / 2;
+    ctx.fillStyle = i < n ? cor : vazia; ctx.beginPath();
+    for (let j = 0; j < 10; j++) {
+      const a = -Math.PI / 2 + j * Math.PI / 5, r = j % 2 ? tam * 0.22 : tam / 2;
+      ctx.lineTo(cx + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    ctx.fill();
+  }
+}
+
+function pino(ctx, x, y, tam, cor) {
+  ctx.save(); ctx.fillStyle = cor; ctx.shadowColor = 'rgba(20,11,51,0.25)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+  ctx.beginPath(); ctx.arc(x, y - tam, tam * 0.62, Math.PI * 0.82, Math.PI * 0.18, false); ctx.lineTo(x, y); ctx.closePath(); ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(x, y - tam, tam * 0.24, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+}
+
+function balao(ctx, cx, cy, tam, cor) { // ícone de conversa
+  ctx.save(); ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(cx, cy, tam / 2, Math.PI * 0.75, Math.PI * 0.6 + Math.PI * 2, false);
+  ctx.lineTo(cx - tam * 0.5, cy + tam * 0.52); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+// ===================== FUNDOS =====================
+function fundo(ctx, tipo) {
+  if (tipo === 'claro') {
+    ctx.fillStyle = COR.claro; ctx.fillRect(0, 0, L, A);
+    const g = ctx.createRadialGradient(L / 2, A * 0.45, 100, L / 2, A * 0.45, 1100);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, L, A); return;
+  }
+  if (tipo === 'roxo') {
+    const g = ctx.createLinearGradient(0, 0, L, A);
+    g.addColorStop(0, '#2a0a9e'); g.addColorStop(0.55, '#5b12ff'); g.addColorStop(1, '#7a3cff');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, L, A); return;
+  }
+  ctx.fillStyle = COR.noite; ctx.fillRect(0, 0, L, A);
+  const g1 = ctx.createRadialGradient(0, 0, 0, 0, 0, 1000);
+  g1.addColorStop(0, 'rgba(91,18,255,0.55)'); g1.addColorStop(1, 'rgba(91,18,255,0)');
+  ctx.fillStyle = g1; ctx.fillRect(0, 0, L, A);
+  const g2 = ctx.createRadialGradient(L, A, 0, L, A, 1100);
+  g2.addColorStop(0, 'rgba(91,18,255,0.6)'); g2.addColorStop(1, 'rgba(91,18,255,0)');
+  ctx.fillStyle = g2; ctx.fillRect(0, 0, L, A);
+}
+
+// ===================== CENAS =====================
+// Tempos das palavras tirados da narração (narracao/take1.mp3).
+const BR = COR.branco, BR2 = 'rgba(255,255,255,0.88)';
+
+// 1. Tu tem uma loja aqui em Belém e o movimento tá fraco?
+function cena1(ctx, t) {
+  linha(ctx, [{ w: 'Tu', t: 0.0 }, { w: 'tem', t: 0.12 }, { w: 'uma', t: 0.26 }, { w: 'loja', t: 0.42 }], L / 2, 440, 84, t, BR2, BR);
+  linha(ctx, [{ w: 'aqui', t: 0.9 }, { w: 'em', t: 1.0 }, { w: 'Belém?', t: 1.05, b: 1 }], L / 2, 560, 104, t, BR, COR.roxoLuz);
+  const pisca = t > 2.0 && Math.sin(t * 47) > 0.2 ? 0.35 : 0;
+  const acesa = limita(1 - 0.75 * progresso(t, 1.8, 0.5) - pisca);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(120, 1262); ctx.lineTo(L - 120, 1262); ctx.stroke();
+  loja(ctx, L / 2, 1260, 560, 'TUA LOJA', progresso(t, 0.05, 0.6), acesa);
+  linha(ctx, [{ w: 'e', t: 1.58 }, { w: 'o', t: 1.66 }, { w: 'movimento', t: 1.7 }, { w: 'tá', t: 1.92 }], L / 2, 1420, 76, t, BR2, BR);
+  linha(ctx, [{ w: 'fraco?', t: 2.2, b: 1 }], L / 2, 1530, 120, t, BR, COR.roxoLuz);
+}
+
+// 2. O cliente tá ali perto... mas entra no concorrente.
+function cena2(ctx, t) {
+  linha(ctx, [{ w: 'O', t: 0.06 }, { w: 'cliente', t: 0.26 }, { w: 'tá', t: 0.52 }, { w: 'ali', t: 0.64 }, { w: 'perto...', t: 0.76 }], L / 2, 430, 80, t, BR2, BR);
+  linha(ctx, [{ w: 'mas', t: 1.62 }, { w: 'entra', t: 1.94 }, { w: 'no', t: 2.3 }, { w: 'concorrente.', t: 2.48, b: 1 }], L / 2, 545, 84, t, BR2, COR.roxoLuz);
+  const base = 1200, w = 420, a = { x: 290 }, b = { x: 790 };
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(60, base + 2); ctx.lineTo(L - 60, base + 2); ctx.stroke();
+  const entrou = progresso(t, 2.6, 0.4);
+  loja(ctx, a.x, base, w, 'TUA LOJA', progresso(t, 0, 0.5), 0.3);
+  loja(ctx, b.x, base, w, 'CONCORRENTE', progresso(t, 0.1, 0.5), 0.75 + 0.25 * entrou);
+  // o cliente (ponto roxo) anda pela calçada
+  const yc = 1310; let x, y = yc, r = 26, alfa = 1;
+  if (t < 1.0) x = mistura(-40, a.x + 60, sai(progresso(t, 0.1, 0.9)));
+  else if (t < 1.6) x = a.x + 60 + Math.sin((t - 1.0) * 10) * 10;
+  else if (t < 2.5) x = mistura(a.x + 60, portaDe(b.x, base, w).x, suave(progresso(t, 1.6, 0.9)));
+  else {
+    const q = suave(progresso(t, 2.5, 0.45)), d = portaDe(b.x, base, w);
+    x = d.x; y = mistura(yc, d.y, q); r = mistura(26, 10, q); alfa = 1 - progresso(t, 2.8, 0.2);
+  }
+  if (t > 0.1 && alfa > 0) {
+    ctx.save(); ctx.globalAlpha *= alfa; ponto(ctx, x, y + (t < 2.5 ? -Math.abs(Math.sin(t * 9)) * 10 : 0), r); ctx.restore();
+    const kTag = progresso(t, 0.3, 0.3) * (1 - progresso(t, 1.5, 0.3));
+    if (kTag > 0) {
+      ctx.save(); ctx.globalAlpha *= kTag;
+      ctx.fillStyle = COR.roxo; ctx.beginPath(); ctx.roundRect(x - 100, y - 130, 200, 76, 38); ctx.fill();
+      texto(ctx, 'cliente', x, y - 92, 48, BR, 600); ctx.restore();
+    }
+  }
+  if (entrou > 0) anel(ctx, portaDe(b.x, base, w).x, portaDe(b.x, base, w).y, 30 + 90 * entrou, COR.roxoLuz, 1 - entrou, 5);
+}
+
+// 3. Sabe por quê? Porque ele não te achou.
+function cena3(ctx, t) {
+  linha(ctx, [{ w: 'Sabe', t: 0.12 }, { w: 'por', t: 0.38 }, { w: 'quê?', t: 0.62, b: 1 }], L / 2, 330, 100, t, COR.tinta, COR.roxo);
+  const s = celular(ctx, L / 2, 470, 620, 920, '#ffffff', sai(progresso(t, 0, 0.45)));
+  // barra de busca
+  const bx = s.x + 30, by = s.y + 90, bw = s.w - 60;
+  ctx.fillStyle = '#efedf5'; ctx.beginPath(); ctx.roundRect(bx, by, bw, 104, 52); ctx.fill();
+  ctx.strokeStyle = COR.cinza; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(bx + 56, by + 46, 17, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bx + 68, by + 58); ctx.lineTo(bx + 82, by + 72); ctx.stroke();
+  const busca = 'açaí perto de mim', n = Math.floor(busca.length * progresso(t, 0.15, 0.8));
+  texto(ctx, busca.slice(0, n), bx + 104, by + 54, 48, COR.tinta, 500, 'left');
+  if (n < busca.length || Math.floor(t * 3) % 2) {
+    fonte(ctx, 48, 500); const cw = ctx.measureText(busca.slice(0, n)).width;
+    ctx.fillStyle = COR.roxo; ctx.fillRect(bx + 108 + cw, by + 28, 4, 52);
+  }
+  // resultados: só os outros aparecem
+  const nomes = ['Açaí da Esquina', 'Point do Açaí'];
+  nomes.forEach((nome, i) => {
+    const k = sai(progresso(t, 1.0 + i * 0.15, 0.4)); if (k <= 0) return;
+    const cy = by + 150 + i * 190;
+    ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 30);
+    ctx.fillStyle = '#f6f4fb'; ctx.beginPath(); ctx.roundRect(bx, cy, bw, 166, 26); ctx.fill();
+    pino(ctx, bx + 56, cy + 110, 40, '#c4bfd6');
+    texto(ctx, nome, bx + 104, cy + 54, 48, COR.tinta, 700, 'left');
+    estrelas(ctx, bx + 106, cy + 118, 4, 38, '#c4bfd6', '#e6e2f0');
+    ctx.restore();
+  });
+  // a vaga da tua loja, vazia
+  const kv = sai(progresso(t, 1.45, 0.4));
+  if (kv > 0) {
+    const cy = by + 150 + 2 * 190, treme = Math.sin(t * 50) * 6 * (1 - progresso(t, 2.1, 0.3)) * progresso(t, 1.9, 0.1);
+    ctx.save(); ctx.globalAlpha *= kv; ctx.translate(treme, 0);
+    ctx.setLineDash([16, 12]); ctx.strokeStyle = COR.roxo; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.roundRect(bx, cy, bw, 166, 26); ctx.stroke(); ctx.setLineDash([]);
+    texto(ctx, 'Tua loja?', bx + bw / 2, cy + 83, 52, COR.roxo, 700);
+    ctx.restore();
+  }
+  ctx.restore();
+  linha(ctx, [{ w: 'Ele', t: 1.44 }, { w: 'não', t: 1.6, b: 1 }, { w: 'te', t: 1.9, b: 1 }, { w: 'achou.', t: 2.1, b: 1 }], L / 2, 1530, 104, t, COR.tinta, COR.roxo);
+}
+
+// 4. É aí que entra a Automa.
+function cena4(ctx, t) {
+  const r = sai(progresso(t, 0, 0.5)) * 1400;
+  ctx.save(); ctx.beginPath(); ctx.arc(L / 2, 820, Math.max(1, r), 0, Math.PI * 2); ctx.clip(); fundo(ctx, 'roxo'); ctx.restore();
+  if (t < 0.25) ponto(ctx, L / 2, 820, 30 + r * 0.1, COR.roxoVivo);
+  simbolo(ctx, L / 2, 800, 440, BR, suave(progresso(t, 0.15, 0.75)), salto(progresso(t, 0.7, 0.4)));
+  linha(ctx, [{ w: 'É', t: 0.06 }, { w: 'aí', t: 0.26 }, { w: 'que', t: 0.56 }, { w: 'entra', t: 0.74 }, { w: 'a', t: 1.0 }], L / 2, 1240, 80, t, BR2, BR);
+  linha(ctx, [{ w: 'Automa.', t: 1.1, b: 1 }], L / 2, 1380, 150, t, BR, BR);
+}
+
+// 5. Google Meu Negócio
+function cena5(ctx, t) {
+  chip(ctx, 'Google Meu Negócio', L / 2, 250, t, 0.1, false);
+  linha(ctx, [{ w: 'Tua', t: 0.3 }, { w: 'loja', t: 0.86 }, { w: 'no', t: 1.2 }, { w: 'Google.', t: 1.36, b: 1 }], L / 2, 380, 96, t, COR.tinta, COR.roxo);
+  // mapa
+  const mx = 90, my = 470, mw = 900, mh = 580, km = sai(progresso(t, 0.1, 0.5));
+  ctx.save(); ctx.globalAlpha *= km; ctx.translate(0, (1 - km) * 40);
+  ctx.fillStyle = '#e4def5'; ctx.beginPath(); ctx.roundRect(mx, my, mw, mh, 40); ctx.fill(); ctx.clip();
+  ctx.fillStyle = '#cdbff7'; ctx.beginPath(); ctx.moveTo(mx, my); ctx.bezierCurveTo(mx + 180, my + 200, mx + 40, my + 400, mx + 160, my + mh); ctx.lineTo(mx, my + mh); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 26; ctx.lineCap = 'round';
+  [[mx, 600, mx + mw, 560], [mx, 800, mx + mw, 840], [mx, 990, mx + mw, 970], [330, my, 300, my + mh], [640, my, 660, my + mh], [880, my, 860, my + mh]].forEach(([a, b, c, d]) => { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); });
+  ctx.lineWidth = 14; ctx.beginPath(); ctx.moveTo(330, 700); ctx.lineTo(880, 1000); ctx.stroke();
+  [[480, 660], [790, 930], [420, 940], [760, 700]].forEach(([x, y], i) => pino(ctx, x, y, 34 * sai(progresso(t, 0.3 + i * 0.08, 0.3)), '#b3abc9'));
+  // o ponto cai no mapa e vira o pino da tua loja
+  const px = 600, py = 820, q = progresso(t, 0.3, 0.5);
+  if (t < 0.85) ponto(ctx, px, mistura(my - 60, py - 40, salto(q)), 24, COR.roxo, 20);
+  else {
+    const kp = salto(progresso(t, 0.85, 0.35));
+    for (let i = 0; i < 2; i++) { const f = ((t - 0.9 + i * 0.6) % 1.2) / 1.2; if (t > 0.9) anel(ctx, px, py - 6, 20 + f * 120, COR.roxo, (1 - f) * 0.8, 5); }
+    pino(ctx, px, py, 64 * kp, COR.roxo);
+  }
+  ctx.restore();
+  // lista de resultados
+  const vaga = (i) => 1090 + i * 170;
+  const sobe = suave(progresso(t, 3.1, 0.55));
+  const cards = [
+    { nome: 'Outra loja', n: 4, de: 0, para: 1, ini: 1.6 },
+    { nome: 'Loja do lado', n: 3, de: 1, para: 2, ini: 1.75 },
+  ];
+  cards.forEach((c) => {
+    const k = sai(progresso(t, c.ini, 0.4)); if (k <= 0) return;
+    const y = mistura(vaga(c.de), vaga(c.para), sobe);
+    ctx.save(); ctx.globalAlpha *= k * mistura(1, 0.7, sobe); ctx.translate(0, (1 - k) * 30);
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(mx, y, mw, 150, 28); ctx.fill();
+    pino(ctx, mx + 62, y + 100, 38, '#c4bfd6');
+    texto(ctx, c.nome, mx + 120, y + 50, 50, '#6f6889', 700, 'left');
+    estrelas(ctx, mx + 122, y + 108, c.n, 36, '#c4bfd6', '#e6e2f0');
+    ctx.restore();
+  });
+  const kt = sai(progresso(t, 2.2, 0.4));
+  if (kt > 0) {
+    const y = mistura(vaga(2), vaga(0), sobe) + (1 - kt) * 40;
+    ctx.save(); ctx.globalAlpha *= kt;
+    ctx.shadowColor = 'rgba(91,18,255,0.35)'; ctx.shadowBlur = 40 * sobe;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(mx, y, mw, 150, 28); ctx.fill(); ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = COR.roxo; ctx.lineWidth = 5; ctx.stroke();
+    pino(ctx, mx + 62, y + 100, 40, COR.roxo);
+    texto(ctx, 'Tua Loja', mx + 120, y + 50, 52, COR.tinta, 800, 'left');
+    estrelas(ctx, mx + 122, y + 108, 5, 36, '#f5b301', '#e6e2f0');
+    texto(ctx, 'Aberto', mx + 345, y + 108, 48, '#12a150', 700, 'left');
+    const kb = salto(progresso(t, 3.5, 0.35));
+    if (kb > 0) { ponto(ctx, mx + mw - 80, y + 75, 46 * kb, COR.roxo, 0); texto(ctx, '1º', mx + mw - 80, y + 77, 48 * kb, BR, 800); }
+    ctx.restore();
+  }
+}
+
+// 6. Site: vitrine aberta 24h
+function cena6(ctx, t) {
+  linha(ctx, [{ w: 'Teu', t: 0.14 }, { w: 'site.', t: 0.5, b: 1 }], L / 2, 320, 104, t, BR2, COR.roxoLuz);
+  const s = celular(ctx, L / 2, 430, 600, 980, '#ffffff', sai(progresso(t, 0, 0.45)));
+  const bloco = (ini, fn) => { const k = sai(progresso(t, ini, 0.4)); if (k <= 0) return; ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 50); fn(); ctx.restore(); };
+  bloco(0.3, () => {
+    ctx.fillStyle = COR.roxo; ctx.fillRect(s.x, s.y, s.w, 170);
+    texto(ctx, 'Tua Loja', s.x + 40, s.y + 112, 50, BR, 800, 'left');
+    ctx.fillStyle = BR; for (let i = 0; i < 3; i++) ctx.fillRect(s.x + s.w - 90, s.y + 92 + i * 16, 48, 6);
+  });
+  bloco(0.6, () => {
+    const hx = s.x + 30, hy = s.y + 200, hw = s.w - 60, hh = 330;
+    const g = ctx.createLinearGradient(hx, hy, hx + hw, hy + hh); g.addColorStop(0, '#7a3cff'); g.addColorStop(1, '#2a0a9e');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(hx, hy, hw, hh, 30); ctx.fill();
+    // tigela de açaí
+    const tx = hx + hw / 2, ty = hy + 190;
+    ctx.fillStyle = '#3a0f6e'; ctx.beginPath(); ctx.ellipse(tx, ty - 6, 150, 40, 0, 0, Math.PI * 2); ctx.fill();
+    const r = rng(5); for (let i = 0; i < 9; i++) ponto(ctx, tx - 110 + r() * 220, ty - 22 + r() * 18, 14 + r() * 8, i % 3 ? '#5a1a9a' : '#f2c14e', 0);
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(tx - 160, ty); ctx.quadraticCurveTo(tx, ty + 240, tx + 160, ty); ctx.closePath(); ctx.fill();
+  });
+  bloco(0.9, () => {
+    texto(ctx, 'Açaí todo dia', s.x + 40, s.y + 590, 56, COR.tinta, 800, 'left');
+    ctx.fillStyle = '#e6e2f0'; ctx.beginPath(); ctx.roundRect(s.x + 40, s.y + 650, s.w - 140, 20, 10); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(s.x + 40, s.y + 690, s.w - 240, 20, 10); ctx.fill();
+  });
+  const by = s.y + 760, bx = s.x + 40, bw = s.w - 80, bh = 120;
+  const toque = progresso(t, 3.0, 0.5);
+  bloco(1.2, () => {
+    ctx.save(); const kk = 1 - 0.05 * Math.sin(toque * Math.PI);
+    ctx.translate(bx + bw / 2, by + bh / 2); ctx.scale(kk, kk); ctx.translate(-(bx + bw / 2), -(by + bh / 2));
+    ctx.fillStyle = COR.verde; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 60); ctx.fill();
+    balao(ctx, bx + 80, by + bh / 2, 46, BR);
+    texto(ctx, 'Pedir agora', bx + bw / 2 + 30, by + bh / 2 + 2, 52, BR, 800);
+    ctx.restore();
+  });
+  // o ponto vira o dedo que toca no botão
+  if (t > 2.4) {
+    const q = suave(progresso(t, 2.4, 0.6));
+    const x = mistura(s.x + s.w + 80, bx + bw - 34, q), y = mistura(s.y + s.h, by + bh - 20, q);
+    if (toque > 0) anel(ctx, x, y, 24 + toque * 90, BR, 1 - toque, 5);
+    ponto(ctx, x, y, 24, COR.roxoVivo, 26);
+  }
+  ctx.restore();
+  linha(ctx, [{ w: 'Vitrine', t: 1.62 }, { w: 'aberta', t: 2.04 }, { w: '24h.', t: 2.5, b: 1 }], L / 2, 1530, 104, t, BR2, COR.roxoLuz);
+}
+
+// 7. Tráfego pago
+function cena7(ctx, t) {
+  chip(ctx, 'Tráfego pago', L / 2, 250, t, 0.1, true);
+  linha(ctx, [{ w: 'Anúncio', t: 0.44 }, { w: 'no', t: 0.9 }, { w: 'Instagram', t: 1.04, b: 1 }], L / 2, 380, 88, t, BR2, COR.roxoLuz);
+  linha(ctx, [{ w: 'e', t: 1.46 }, { w: 'no', t: 1.8 }, { w: 'Google', t: 1.96, b: 1 }], L / 2, 485, 88, t, BR2, COR.roxoLuz);
+  const r = rng(11), gente = [];
+  for (let i = 0; i < 34; i++) gente.push({ x: 130 + r() * 820, y: 610 + r() * 520, f: r() * 6.28 });
+  const alvos = [3, 9, 17, 22, 30], tSel = [1.6, 1.9, 2.2, 2.5, 2.8];
+  const lojaX = L / 2, lojaBase = 1400, lw = 260, porta = portaDe(lojaX, lojaBase, lw);
+  loja(ctx, lojaX, lojaBase, lw, 'TUA LOJA', progresso(t, 0.2, 0.5), 0.6 + 0.4 * progresso(t, 3.6, 0.5));
+  const kg = sai(progresso(t, 0.1, 0.6));
+  gente.forEach((g, i) => {
+    let x = g.x + Math.sin(t * 0.9 + g.f) * 14, y = g.y + Math.cos(t * 0.7 + g.f) * 10;
+    const j = alvos.indexOf(i);
+    if (j >= 0 && t > tSel[j]) {
+      const v = suave(progresso(t, 3.3 + j * 0.12, 0.8));
+      x = mistura(x, porta.x, v); y = mistura(y, porta.y, v);
+      const fim = progresso(t, 3.9 + j * 0.12, 0.2);
+      ctx.save(); ctx.globalAlpha *= kg * (1 - fim); ponto(ctx, x, y, mistura(18, 12, v), COR.roxoVivo, 24); ctx.restore();
+      const kr = progresso(t, tSel[j], 0.5); if (kr < 1) anel(ctx, x, y, 20 + kr * 60, COR.roxoLuz, 1 - kr, 4);
+    } else {
+      ctx.save(); ctx.globalAlpha *= kg * 0.4; ponto(ctx, x, y, 16, '#ffffff', 0); ctx.restore();
+    }
+  });
+  // mira que escolhe as pessoas certas
+  if (t > 1.3 && t < 3.3) {
+    let k = 0; while (k < tSel.length - 1 && t > tSel[k]) k++;
+    const de = k === 0 ? { x: L / 2, y: 870 } : gente[alvos[k - 1]], para = gente[alvos[k]];
+    const q = suave(progresso(t, k === 0 ? 1.3 : tSel[k - 1], k === 0 ? 0.3 : 0.25));
+    const mx = mistura(de.x, para.x, q), my = mistura(de.y, para.y, q);
+    const ka = progresso(t, 1.3, 0.2) * (1 - progresso(t, 3.0, 0.3));
+    ctx.save(); ctx.globalAlpha *= ka; ctx.strokeStyle = COR.roxoLuz; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(mx, my, 50, 0, Math.PI * 2); ctx.stroke();
+    [[0, -1], [0, 1], [-1, 0], [1, 0]].forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(mx + a * 36, my + b * 36); ctx.lineTo(mx + a * 68, my + b * 68); ctx.stroke(); });
+    ctx.restore();
+  }
+  linha(ctx, [{ w: 'Pra', t: 2.32 }, { w: 'quem', t: 2.94 }, { w: 'quer', t: 3.32, b: 1 }, { w: 'comprar.', t: 3.8, b: 1 }], L / 2, 1540, 88, t, BR2, COR.roxoLuz);
+}
+
+// 8. Atendente inteligente no WhatsApp
+function cena8(ctx, t) {
+  // relógio de madrugada no lugar do chip
+  const kc = sai(progresso(t, 0.1, 0.4));
+  if (kc > 0) {
+    ctx.save(); ctx.globalAlpha *= kc;
+    ctx.fillStyle = COR.tinta; ctx.beginPath(); ctx.roundRect(L / 2 - 140, 207, 280, 86, 43); ctx.fill();
+    ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.arc(L / 2 - 80, 250, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COR.tinta; ctx.beginPath(); ctx.arc(L / 2 - 70, 242, 20, 0, Math.PI * 2); ctx.fill();
+    texto(ctx, '02:14', L / 2 + 26, 252, 48, BR, 700); ctx.restore();
+  }
+  linha(ctx, [{ w: 'Atendente', t: 0.84 }, { w: 'inteligente.', t: 1.26, b: 1 }], L / 2, 380, 92, t, COR.tinta, COR.roxo);
+  const s = celular(ctx, L / 2, 460, 620, 960, '#ece5dd', sai(progresso(t, 0, 0.45)));
+  ctx.fillStyle = COR.verdeZap; ctx.fillRect(s.x, s.y, s.w, 170);
+  ponto(ctx, s.x + 70, s.y + 112, 34, '#ffffff', 0); simbolo(ctx, s.x + 70, s.y + 112, 36, COR.roxo);
+  texto(ctx, 'Tua Loja', s.x + 124, s.y + 112, 48, BR, 700, 'left');
+  balao(ctx, s.x + s.w - 64, s.y + 112, 40, 'rgba(255,255,255,0.85)');
+  const msg = (lado, linhas, y, ini, fim = 99) => {
+    const k = sai(progresso(t, ini, 0.35)) * (1 - progresso(t, fim, 0.15)); if (k <= 0) return;
+    fonte(ctx, 46, 500); const w = Math.max(...linhas.map((l) => ctx.measureText(l).width)) + 56, h = linhas.length * 58 + 34;
+    const x = lado === 'e' ? s.x + 26 : s.x + s.w - 26 - w;
+    ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 30);
+    ctx.fillStyle = lado === 'e' ? '#ffffff' : COR.bolhaZap; ctx.beginPath(); ctx.roundRect(x, y, w, h, 24); ctx.fill();
+    linhas.forEach((l, i) => texto(ctx, l, x + 28, y + 46 + i * 58, 46, COR.tinta, 500, 'left'));
+    ctx.restore();
+  };
+  msg('e', ['Tem entrega hoje?'], s.y + 210, 0.4);
+  // digitando: o ponto roxo vira os três pontinhos
+  const kd = sai(progresso(t, 1.0, 0.3)) * (1 - progresso(t, 2.3, 0.15));
+  if (kd > 0) {
+    const w = 150, x = s.x + s.w - 26 - w, y = s.y + 340;
+    ctx.save(); ctx.globalAlpha *= kd; ctx.fillStyle = COR.bolhaZap; ctx.beginPath(); ctx.roundRect(x, y, w, 92, 24); ctx.fill();
+    for (let i = 0; i < 3; i++) ponto(ctx, x + 42 + i * 33, y + 46 - Math.max(0, Math.sin(t * 9 - i * 0.9)) * 12, 11, COR.roxoVivo, 10);
+    ctx.restore();
+  }
+  msg('d', ['Tem sim! Chega', 'em 30 minutos.'], s.y + 340, 2.35);
+  msg('e', ['Show! Quero dois.'], s.y + 540, 3.7);
+  msg('d', ['Pedido anotado ✓✓'], s.y + 670, 4.5);
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha *= 1 - progresso(t, 4.85, 0.25);
+  linha(ctx, [{ w: 'Responde', t: 2.32 }, { w: 'na', t: 4.0, b: 1 }, { w: 'hora.', t: 4.36, b: 1 }], L / 2, 1530, 100, t, COR.tinta, COR.roxo);
+  ctx.restore();
+  linha(ctx, [{ w: 'Até', t: 5.1 }, { w: 'de', t: 5.46 }, { w: 'madrugada.', t: 5.64, b: 1 }], L / 2, 1530, 100, t, COR.tinta, COR.roxo);
+}
+
+// 9. Resultado: mais gente te achando, mais gente na tua porta.
+function cena9(ctx, t) {
+  chip(ctx, 'Resultado', L / 2, 250, t, 0.15, true);
+  linha(ctx, [{ w: 'Mais', t: 1.12 }, { w: 'gente', t: 1.46 }, { w: 'te', t: 1.74 }, { w: 'achando.', t: 1.92, b: 1 }], L / 2, 400, 92, t, BR2, COR.roxoLuz);
+  const base = 1240, w = 560, porta = portaDe(L / 2, base, w);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(60, base + 2); ctx.lineTo(L - 60, base + 2); ctx.stroke();
+  loja(ctx, L / 2, base, w, 'TUA LOJA', progresso(t, 0, 0.5), 0.4 + 0.6 * progresso(t, 0.3, 0.6));
+  const r = rng(21);
+  for (let i = 0; i < 16; i++) {
+    const ini = 0.4 + i * 0.24 + r() * 0.1, daEsq = r() < 0.5, yv = 1300 + r() * 40;
+    const q = progresso(t, ini, 1.0); if (q <= 0 || q >= 1) continue;
+    let x, y;
+    if (q < 0.7) { const u = sai(q / 0.7); x = mistura(daEsq ? -30 : L + 30, porta.x, u); y = yv - Math.abs(Math.sin(t * 9 + i)) * 10; }
+    else { const u = (q - 0.7) / 0.3; x = porta.x; y = mistura(yv, porta.y, suave(u)); }
+    ctx.save(); ctx.globalAlpha *= 1 - progresso(q, 0.85, 0.15); ponto(ctx, x, y, 20, COR.roxoVivo, 22); ctx.restore();
+  }
+  // brilhinhos na placa
+  for (let i = 0; i < 6; i++) {
+    const f = ((t * 0.8 + i / 6) % 1), a = i * 1.05;
+    if (t > 0.6) ponto(ctx, L / 2 + Math.cos(a) * (320 + f * 60), 760 + Math.sin(a) * (90 + f * 40), 6 * (1 - f), COR.roxoLuz, 12);
+  }
+  linha(ctx, [{ w: 'Mais', t: 2.6 }, { w: 'gente', t: 2.94 }, { w: 'na', t: 3.28 }, { w: 'tua', t: 3.52, b: 1 }, { w: 'porta.', t: 3.84, b: 1 }], L / 2, 1500, 92, t, BR2, COR.roxoLuz);
+}
+
+// 10. Automa Agência. Chama a gente no WhatsApp e bora encher tua loja!
+function cena10(ctx, t) {
+  const cy = 740, kp = sai(progresso(t, 0, 0.25)) * (1 - progresso(t, 0.8, 0.25));
+  if (kp > 0) ponto(ctx, L / 2 + 4, cy + 6, 60 * kp, COR.roxoVivo, 40);
+  // brilho atrás do símbolo
+  const g = ctx.createRadialGradient(L / 2, cy, 0, L / 2, cy, 520);
+  g.addColorStop(0, 'rgba(122,60,255,' + (0.45 * progresso(t, 0.3, 1)).toFixed(3) + ')'); g.addColorStop(1, 'rgba(122,60,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, L, A);
+  simbolo(ctx, L / 2, cy, 400, BR, suave(progresso(t, 0.1, 0.85)), salto(progresso(t, 0.75, 0.4)));
+  // nome
+  const kn = sai(progresso(t, 0.5, 0.6));
+  if (kn > 0) {
+    ctx.save(); ctx.globalAlpha *= kn; filtro(ctx, (1 - kn) * 14);
+    ctx.letterSpacing = '6px';
+    fonte(ctx, 88, 300); const w1 = ctx.measureText('AUTOMA ').width; fonte(ctx, 88, 800); const w2 = ctx.measureText('AGENCIA').width;
+    const x0 = L / 2 - (w1 + w2) / 2, y = 1060 + (1 - kn) * 24;
+    texto(ctx, 'AUTOMA ', x0, y, 88, BR, 300, 'left'); texto(ctx, 'AGENCIA', x0 + w1, y, 88, BR, 800, 'left');
+    ctx.letterSpacing = '0px'; ctx.restore(); filtro(ctx);
+  }
+  // chamada pro WhatsApp
+  const kb = salto(progresso(t, 1.5, 0.45));
+  if (kb > 0) {
+    const pulso = 1 + 0.025 * Math.sin(Math.max(0, t - 3.5) * 4) * progresso(t, 3.5, 0.5);
+    const bw = 800, bh = 150, by = 1330;
+    ctx.save(); ctx.translate(L / 2, by); ctx.scale(kb * pulso, kb * pulso); ctx.translate(-L / 2, -by);
+    ctx.shadowColor = 'rgba(31,191,91,0.55)'; ctx.shadowBlur = 50;
+    ctx.fillStyle = COR.verde; ctx.beginPath(); ctx.roundRect(L / 2 - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    balao(ctx, L / 2 - bw / 2 + 100, by, 64, BR);
+    texto(ctx, 'Chama no WhatsApp', L / 2 + 50, by + 3, 60, BR, 800);
+    ctx.restore();
+  }
+  linha(ctx, [{ w: 'Bora', t: 2.96 }, { w: 'encher', t: 3.36, b: 1 }, { w: 'tua', t: 3.6, b: 1 }, { w: 'loja!', t: 3.8, b: 1 }], L / 2, 1510, 80, t, BR2, COR.roxoLuz);
+}
+
+// [início, fim, função, fundo, cabeçalho]. Tempos batem com a narração.
+const CENAS = [
+  [0, 3.1, cena1, 'noite', true],
+  [3.1, 6.5, cena2, 'noite', true],
+  [6.5, 9.4, cena3, 'claro', true],
+  [9.4, 11.3, cena4, 'claro', false],
+  [11.3, 15.9, cena5, 'claro', true],
+  [15.9, 19.9, cena6, 'noite', true],
+  [19.9, 24.7, cena7, 'noite', true],
+  [24.7, 31.1, cena8, 'claro', true],
+  [31.1, 35.7, cena9, 'noite', true],
+  [35.7, 43, cena10, 'noite', false],
+];
+const STORYBOARD = [2.7, 6.1, 9.0, 10.9, 15.5, 19.5, 24.3, 30.7, 35.3, 42];
+
+// ===================== DESENHO =====================
+const tela = document.getElementById('c');
+const ctx = tela.getContext('2d');
+let ESCALA = 1;
+function definirEscala(e) { ESCALA = e; tela.width = Math.round(L * e); tela.height = Math.round(A * e); }
+definirEscala(1);
+
+function desenha(t) {
+  ctx.setTransform(ESCALA, 0, 0, ESCALA, 0, 0);
+  ctx.filter = 'none'; ctx.globalAlpha = 1;
+  const i = CENAS.findIndex(([ini, fim]) => t >= ini && t < fim);
+  const [ini, fim, fn, tipo, cab] = CENAS[i < 0 ? CENAS.length - 1 : i];
+  const tl = t - ini, d = fim - ini, ultima = i < 0 || i === CENAS.length - 1;
+  fundo(ctx, tipo);
+  const escuro = tipo === 'noite' || (fn === cena4 && tl > 0.3);
+  // saída: o conteúdo desfoca e some nos últimos 0,3 s (menos na última cena)
+  const e = ultima ? 0 : progresso(tl, d - 0.3, 0.3);
+  BLUR0 = e * 18;
+  ctx.save();
+  ctx.globalAlpha = 1 - e * 0.85; filtro(ctx);
+  ctx.translate(L / 2, A / 2); ctx.scale(1 + e * 0.04, 1 + e * 0.04); ctx.translate(-L / 2, -A / 2);
+  if (cab) cabecalho(ctx, escuro);
+  fn(ctx, tl, d, t);
+  ctx.restore();
+  ctx.filter = 'none'; BLUR0 = 0;
+}
+
+// ===================== TRILHA EM CÓDIGO =====================
+// Base leve no BPM, chimbal nos contratempos, acorde por cena e batidas fortes nas viradas.
+async function trilha() {
+  const sr = 48000, dur = CONFIG.duracao, ac = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
+  const mestre = ac.createGain(); mestre.gain.value = 0.55; mestre.connect(ac.destination);
+  const batida = 60 / CONFIG.bpm;
+  const ruido = ac.createBuffer(1, sr * 0.2, sr); const r = rng(3); const dados = ruido.getChannelData(0);
+  for (let i = 0; i < dados.length; i++) dados[i] = r() * 2 - 1;
+  const pausa = (t) => (t > 8.9 && t < 9.4) || (t > 35.2 && t < 35.7);
+  for (let t = 0; t < dur - 2.5; t += batida) {
+    if (pausa(t)) continue;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.16);
+    g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(mestre); o.start(t); o.stop(t + 0.25);
+    const th = t + batida / 2; if (pausa(th)) continue;
+    const n = ac.createBufferSource(), f = ac.createBiquadFilter(), gh = ac.createGain();
+    n.buffer = ruido; f.type = 'highpass'; f.frequency.value = 7000;
+    gh.gain.setValueAtTime(0.18, th); gh.gain.exponentialRampToValueAtTime(0.001, th + 0.06);
+    n.connect(f); f.connect(gh); gh.connect(mestre); n.start(th); n.stop(th + 0.08);
+  }
+  const notas = [[261.6, 329.6, 392], [220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7]];
+  CENAS.forEach(([ini, fim], i) => notas[i % notas.length].forEach((fq) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle'; o.frequency.value = fq;
+    g.gain.setValueAtTime(0, ini); g.gain.linearRampToValueAtTime(0.05, ini + 0.3); g.gain.linearRampToValueAtTime(0, fim);
+    o.connect(g); g.connect(mestre); o.start(ini); o.stop(fim);
+  }));
+  [9.4, 35.7].forEach((t) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(35, t + 0.5);
+    g.gain.setValueAtTime(1.0, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    o.connect(g); g.connect(mestre); o.start(t); o.stop(t + 0.75);
+  });
+  const buf = await ac.startRendering();
+  return wavBase64(buf);
+}
+
+function wavBase64(buf) {
+  const canais = buf.numberOfChannels, n = buf.length, bytes = 44 + n * canais * 2;
+  const v = new DataView(new ArrayBuffer(bytes));
+  const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, bytes - 8, true); s(8, 'WAVE'); s(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, canais, true); v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * canais * 2, true); v.setUint16(32, canais * 2, true); v.setUint16(34, 16, true);
+  s(36, 'data'); v.setUint32(40, n * canais * 2, true);
+  const dados = []; for (let c = 0; c < canais; c++) dados.push(buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < canais; c++) { v.setInt16(o, limita(dados[c][i], -1, 1) * 32767, true); o += 2; }
+  const u8 = new Uint8Array(v.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 32768) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 32768));
+  return btoa(bin);
+}
+
+// ===================== CONTROLE =====================
+window.CONFIG = CONFIG; window.STORYBOARD = STORYBOARD; window.trilha = trilha; window.definirEscala = definirEscala;
+window.seek = (t) => desenha(limita(t, 0, CONFIG.duracao - 1 / CONFIG.fps));
+if (new URLSearchParams(location.search).has('render')) {
+  desenha(0);
+} else {
+  let pausado = false, base = performance.now();
+  tela.addEventListener('click', () => { pausado = !pausado; base = performance.now() - ultimo * 1000; });
+  let ultimo = 0;
+  (function laco(agora) {
+    if (!pausado) { ultimo = ((agora - base) / 1000) % CONFIG.duracao; desenha(ultimo); }
+    requestAnimationFrame(laco);
+  })(performance.now());
+}
+</script>
+</body>
+</html>
