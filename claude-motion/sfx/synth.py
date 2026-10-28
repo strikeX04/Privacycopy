@@ -191,3 +191,64 @@ def pad(duration, chords, volume=None, detune=0.6, tremolo=0.23, xfade=0.35):
             left[i] += sl * v
             right[i] += sr * v
     return left, right
+
+
+def roar(dur, f0=70.0, f1=110.0):
+    """Creature roar: a growling saw with rough flutter and a vowel formant. Swells in, fades out."""
+    n = int(dur * SR)
+    vowel = bandnoise(n, lambda k: 520 + 260 * math.sin(math.pi * k / n), q=0.25)
+    out = []
+    ph = 0.0
+    flut = 0.0
+    for k in range(n):
+        x = k / n
+        f = f0 + (f1 - f0) * math.sin(math.pi * min(1, x * 1.6)) + 6 * math.sin(k / SR * 2 * math.pi * 5.5)
+        ph = (ph + f / SR) % 1.0
+        flut += 0.02 * (random.uniform(-1, 1) - flut)
+        rough = 0.6 + 0.4 * math.sin(k / SR * 2 * math.pi * 31) + flut * 2
+        saw = 2 * ph - 1
+        env = min(1, x / 0.12) * (1 - x) ** 0.6
+        out.append(math.tanh(2.2 * (0.55 * saw * rough + 1.6 * vowel[k])) * env)
+    return out
+
+
+def flames(dur, attack=0.08):
+    """Fire breath / big flame: a roaring wash of noise with a low rumble and flutter."""
+    n = int(dur * SR)
+    hiss = bandnoise(n, lambda k: max(260, 1000 + 450 * math.sin(k / SR * 3.1) + 300 * math.sin(k / SR * 7.7)), q=0.3)
+    out = []
+    low = 0.0
+    flut = 0.0
+    for k in range(n):
+        tt = k / SR
+        low += 0.012 * (random.uniform(-1, 1) - low)
+        flut += 0.004 * (random.uniform(-1, 1) - flut)
+        env = min(1, tt / attack) * min(1, (n - k) / (0.6 * SR))
+        out.append((hiss[k] * (0.9 + 6 * flut) + low * 7) * env)
+    return out
+
+
+def crackle(dur, rate=18.0, seed=0):
+    """Fire crackle: sparse little pops and snaps for embers or a candle. rate = pops per second."""
+    n = int(dur * SR)
+    out = [0.0] * n
+    rng = random.Random(seed)
+    t = 0.0
+    while True:
+        t += rng.expovariate(rate)
+        i0 = int(t * SR)
+        if i0 >= n:
+            break
+        g = rng.uniform(0.2, 1.0) ** 2
+        m = int(rng.uniform(0.0015, 0.006) * SR)
+        for k in range(m):
+            if i0 + k < n:
+                out[i0 + k] += g * rng.uniform(-1, 1) * math.exp(-k / (m * 0.25))
+    return out
+
+
+def sizzle(dur, fc=6500):
+    """Hot stone / steam hiss: bright airy noise that swells and fades."""
+    n = int(dur * SR)
+    noise = bandnoise(n, lambda k: fc * (1 + 0.15 * math.sin(k / SR * 9)), q=0.35)
+    return [noise[k] * math.sin(math.pi * k / n) ** 1.5 * 1.2 for k in range(n)]
