@@ -35,3 +35,15 @@ link) e peça: "analisa o hook desse vídeo e adapta pro meu produto X".
 pip install -r .claude/skills/analisar-hook/scripts/requirements.txt   # precisa de ffmpeg
 python3 .claude/skills/analisar-hook/scripts/extrair_hook.py video.mp4 --segundos 6
 ```
+
+## Skills de motion design (claude-motion)
+
+Instaladas de [whaleyxbt/claude-motion](https://github.com/whaleyxbt/claude-motion) (MIT):
+
+- `motion-design`: regras de gosto para animação no Remotion (easing, springs, tempo, tipografia, cor).
+- `review-loop`: renderiza rascunho, monta folhas de contato e revisa quadro a quadro antes de entregar.
+- `sound-design`: motor de efeitos sonoros procedural em Python, sincronizado com a timeline, masterizado a -14 LUFS.
+- `web-sims`: simulações e 3D como uma página HTML capturada quadro a quadro para mp4 a 60 fps.
+
+As skills ficam em `.claude/skills/` e o toolkit que elas usam fica em `claude-motion/`.
+Na primeira vez: `cd claude-motion && npm install` (precisa de Node 20+, Python 3 e ffmpeg).
