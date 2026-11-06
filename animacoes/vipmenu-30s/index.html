@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>VipMenu 30s</title>
+<style>
+  html, body { margin: 0; background: #111; height: 100%; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; margin: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ===================== CONFIGURAÇÃO =====================
+// placeholders: true mostra as etiquetas amarelas de "tela ilustrativa". Troque para false na versão final com prints reais.
+const CONFIG = { largura: 1080, altura: 1920, fps: 30, duracao: 30, bpm: 112, semente: 11, placeholders: true };
+const COR = {
+  fundo: '#09090b', azul1: '#1d6cf7', azul2: '#0da8ff', branco: '#ffffff', cinza: '#8b93a3',
+  ouro: '#ffc83d', ouroEsc: '#e79b00', tela: '#f4f6fb', texto: '#11141b', verde: '#25d366', escuro: '#0f1218',
+};
+// Textos da tela. Mude aqui sem mexer nas cenas.
+const TXT = {
+  restaurante: 'Seu Restaurante',
+  cta: 'Conheça o VipMenu',
+  numero: '(11) 9••••-••42',
+};
+
+// ===================== AJUDANTES =====================
+function rng(semente) { let a = semente >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const limita = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const mistura = (a, b, p) => a + (b - a) * p;
+const progresso = (t, ini, dur) => limita((t - ini) / dur);
+const suave = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+const sai = (p) => 1 - Math.pow(1 - p, 3);
+const entra = (p) => p * p * p;
+const salto = (p) => { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+const L = CONFIG.largura, A = CONFIG.altura;
+const SW = 392, SH = 842; // tela do celular, em pontos
+
+const F = (peso, tam) => peso + ' ' + tam + 'px Inter, system-ui, sans-serif';
+function rr(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function gradAzul(ctx, x0, y0, x1, y1) { const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, COR.azul1); g.addColorStop(1, COR.azul2); return g; }
+function txt(ctx, s, x, y, peso, tam, cor, alinha = 'left') {
+  ctx.font = F(peso, tam); ctx.fillStyle = cor; ctx.textAlign = alinha; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function circulo(ctx, x, y, r, cor) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = cor; ctx.fill(); }
+function estrela(ctx, x, y, r, cor) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr2 = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); }
+  ctx.closePath(); ctx.fillStyle = cor; ctx.fill();
+}
+function check(ctx, x, y, s, cor, lw, p = 1) {
+  ctx.save(); ctx.strokeStyle = cor; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const pts = [[-0.5, 0], [-0.15, 0.35], [0.55, -0.4]];
+  const d1 = Math.hypot(0.35, 0.35), d2 = Math.hypot(0.7, 0.75), tot = d1 + d2, alvo = tot * p;
+  ctx.beginPath(); ctx.moveTo(x + pts[0][0] * s, y + pts[0][1] * s);
+  if (alvo <= d1) { const q = alvo / d1; ctx.lineTo(x + mistura(pts[0][0], pts[1][0], q) * s, y + mistura(pts[0][1], pts[1][1], q) * s); }
+  else { ctx.lineTo(x + pts[1][0] * s, y + pts[1][1] * s); const q = (alvo - d1) / d2; ctx.lineTo(x + mistura(pts[1][0], pts[2][0], q) * s, y + mistura(pts[1][1], pts[2][1], q) * s); }
+  ctx.stroke(); ctx.restore();
+}
+function iconeWhats(ctx, x, y, r) {
+  circulo(ctx, x, y, r, COR.verde);
+  ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = r * 0.16; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - r * 0.42, y + r * 0.38); ctx.lineTo(x - r * 0.6, y + r * 0.62); ctx.lineTo(x - r * 0.18, y + r * 0.52); ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.restore();
+}
+function cadeado(ctx, x, y, s, cor) {
+  ctx.save(); ctx.strokeStyle = cor; ctx.fillStyle = cor; ctx.lineWidth = s * 0.16;
+  ctx.beginPath(); ctx.arc(x, y - s * 0.15, s * 0.3, Math.PI, 0); ctx.stroke();
+  rr(ctx, x - s * 0.45, y - s * 0.15, s * 0.9, s * 0.65, s * 0.12); ctx.fill(); ctx.restore();
+}
+
+// manchete em linhas; cada linha é uma lista de [texto, estilo] com estilo 'w' branco, 'b' azul, 'g' dourado
+function manchete(ctx, linhas, y, tam, t, ini, fim) {
+  ctx.save();
+  let size = tam; ctx.font = F(800, size);
+  const larg = (l) => l.reduce((s, [tx]) => s + ctx.measureText(tx).width, 0);
+  const maxw = Math.max(...linhas.map(larg));
+  if (maxw > 930) { size = tam * 930 / maxw; ctx.font = F(800, size); }
+  linhas.forEach((l, i) => {
+    const pe = sai(progresso(t, ini + i * 0.14, 0.4)), ps = suave(progresso(t, fim - 0.3, 0.3));
+    if (pe <= 0 || ps >= 1) return;
+    const w = larg(l); let x = L / 2 - w / 2; const yy = y + i * size * 1.14 + (1 - pe) * 46 - ps * 36;
+    ctx.globalAlpha = pe * (1 - ps);
+    l.forEach(([tx, est]) => {
+      const wt = ctx.measureText(tx).width;
+      ctx.fillStyle = est === 'b' ? gradAzul(ctx, x, 0, x + wt, 0) : est === 'g' ? COR.ouro : '#fff';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 6;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(tx, x, yy); x += wt;
+    });
+  });
+  ctx.restore();
+}
+
+function etiqueta(ctx, s, x = L / 2, y = 1700) {
+  if (!CONFIG.placeholders) return;
+  ctx.save(); ctx.font = F(800, 26); const w = ctx.measureText(s).width + 44;
+  ctx.globalAlpha = 0.95; rr(ctx, x - w / 2, y - 24, w, 48, 24); ctx.fillStyle = '#ffd60a'; ctx.fill();
+  txt(ctx, s, x, y + 1, 800, 26, '#111', 'center'); ctx.restore();
+}
+
+// ===================== FUNDOS =====================
+function fundoMarca(ctx, t, forca = 1) {
+  ctx.fillStyle = COR.fundo; ctx.fillRect(0, 0, L, A);
+  const bolhas = [[0.2, 0.25, 700, COR.azul1, 0.5], [0.85, 0.7, 800, COR.azul2, 0.35], [0.5, 1.0, 900, COR.azul1, 0.3]];
+  bolhas.forEach(([bx, by, r, c, a], i) => {
+    const x = bx * L + Math.sin(t * 0.6 + i * 2) * 80, y = by * A + Math.cos(t * 0.5 + i) * 90;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, c + '55'); g.addColorStop(1, c + '00');
+    ctx.globalAlpha = a * forca; ctx.fillStyle = g; ctx.fillRect(0, 0, L, A);
+  });
+  ctx.globalAlpha = 0.08 * forca; ctx.fillStyle = '#fff';
+  for (let gx = 60; gx < L; gx += 60) for (let gy = 60; gy < A; gy += 60) ctx.fillRect(gx, gy, 2, 2);
+  ctx.globalAlpha = 1;
+}
+function particulas(ctx, t, n, semente, cor, forca = 1) {
+  const r = rng(semente);
+  for (let i = 0; i < n; i++) {
+    const x0 = r() * L, v = 30 + r() * 90, s = 2 + r() * 5, fase = r() * 10;
+    const y = (r() * A - t * v) % A; const yy = y < 0 ? y + A : y;
+    ctx.globalAlpha = (0.25 + 0.5 * (0.5 + 0.5 * Math.sin(t * 2 + fase))) * forca;
+    circulo(ctx, x0 + Math.sin(t + fase) * 20, yy, s, cor);
+  }
+  ctx.globalAlpha = 1;
+}
+function mesa(ctx) {
+  const r = rng(5);
+  const tons = ['#4a2f1d', '#3f2818', '#52331f', '#442b1a', '#3a2416', '#4d311e'];
+  for (let i = 0; i < 6; i++) {
+    const x = i * 180; const g = ctx.createLinearGradient(x, 0, x + 180, 0);
+    g.addColorStop(0, tons[i]); g.addColorStop(0.5, tons[(i + 2) % 6]); g.addColorStop(1, tons[i]);
+    ctx.fillStyle = g; ctx.fillRect(x, 0, 180, A);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 177, 0, 3, A);
+    ctx.strokeStyle = 'rgba(255,220,180,0.07)'; ctx.lineWidth = 2;
+    for (let k = 0; k < 7; k++) {
+      const gx = x + 15 + r() * 150, amp = 4 + r() * 10, f = 0.004 + r() * 0.006;
+      ctx.beginPath(); for (let y = 0; y <= A; y += 40) ctx.lineTo(gx + Math.sin(y * f + k) * amp, y); ctx.stroke();
+    }
+  }
+  // prato e copo vistos de cima
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
+  circulo(ctx, 1010, 1280, 250, '#f2efe9'); ctx.restore();
+  circulo(ctx, 1010, 1280, 175, '#e6e2da');
+  ctx.save(); ctx.globalAlpha = 0.5; circulo(ctx, 80, 1180, 95, '#cfe3ef'); ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(80, 1180, 95, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  // vinheta
+  const v = ctx.createRadialGradient(L / 2, A / 2, 300, L / 2, A / 2, 1200);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.65)'); ctx.fillStyle = v; ctx.fillRect(0, 0, L, A);
+}
+function qr(ctx, x, y, size, semente) {
+  const n = 25, m = size / n, r = rng(semente);
+  ctx.fillStyle = '#fff'; ctx.fillRect(x - m, y - m, size + 2 * m, size + 2 * m);
+  ctx.fillStyle = '#111';
+  const finder = (i, j) => (i < 8 && j < 8) || (i > n - 9 && j < 8) || (i < 8 && j > n - 9);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = r(); if (!finder(i, j) && v > 0.52) ctx.fillRect(x + i * m, y + j * m, m + 0.5, m + 0.5); }
+  [[0, 0], [n - 7, 0], [0, n - 7]].forEach(([i, j]) => {
+    ctx.fillStyle = '#111'; ctx.fillRect(x + i * m, y + j * m, 7 * m, 7 * m);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + (i + 1) * m, y + (j + 1) * m, 5 * m, 5 * m);
+    ctx.fillStyle = '#111'; ctx.fillRect(x + (i + 2) * m, y + (j + 2) * m, 3 * m, 3 * m);
+  });
+}
+function plaquinhaQR(ctx, cx, cy, s) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s); ctx.rotate(-0.05);
+  ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 20;
+  rr(ctx, -200, -240, 400, 480, 34); ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent';
+  rr(ctx, -200, -240, 400, 86, 34); ctx.fillStyle = gradAzul(ctx, -200, 0, 200, 0); ctx.fill(); ctx.fillRect(-200, -190, 400, 36);
+  txt(ctx, 'Cardápio digital', 0, -197, 800, 34, '#fff', 'center');
+  qr(ctx, -130, -120, 260, 21);
+  txt(ctx, 'Aponte a câmera', 0, 200, 700, 26, '#5b6475', 'center');
+  ctx.restore();
+}
+
+// ===================== COMIDA =====================
+function comida(ctx, tipo, cx, cy, s) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+  if (tipo === 'burger') {
+    ctx.beginPath(); ctx.ellipse(0, -10, 38, 26, 0, Math.PI, 0); ctx.closePath(); ctx.fillStyle = '#eda23e'; ctx.fill();
+    ctx.fillStyle = '#fff3d6'; [[-16, -22], [0, -28], [15, -21], [-6, -16], [9, -14]].forEach(([x, y]) => { ctx.beginPath(); ctx.ellipse(x, y, 3, 1.8, 0.4, 0, 7); ctx.fill(); });
+    ctx.fillStyle = '#5cb85c'; ctx.beginPath(); for (let x = -40; x <= 40; x += 8) ctx.lineTo(x, -8 + (x / 8 % 2 ? 5 : 0)); ctx.lineTo(40, -2); ctx.lineTo(-40, -2); ctx.fill();
+    ctx.fillStyle = '#ffcc33'; ctx.beginPath(); ctx.moveTo(-38, -2); ctx.lineTo(38, -2); ctx.lineTo(24, 10); ctx.lineTo(-30, 6); ctx.fill();
+    rr(ctx, -38, 2, 76, 14, 7); ctx.fillStyle = '#6b3a1e'; ctx.fill();
+    rr(ctx, -36, 16, 72, 16, 8); ctx.fillStyle = '#e39a35'; ctx.fill();
+  } else if (tipo === 'pizza') {
+    ctx.beginPath(); ctx.moveTo(-34, -26); ctx.lineTo(34, -26); ctx.lineTo(0, 34); ctx.closePath(); ctx.fillStyle = '#f6c443'; ctx.fill();
+    rr(ctx, -38, -34, 76, 12, 6); ctx.fillStyle = '#d98a2b'; ctx.fill();
+    [[-14, -12], [12, -10], [0, 8]].forEach(([x, y]) => circulo(ctx, x, y, 7, '#d6402b'));
+  } else if (tipo === 'batata') {
+    ctx.fillStyle = '#f7d046'; for (let i = -3; i <= 3; i++) { ctx.save(); ctx.translate(i * 8, -14); ctx.rotate(i * 0.09); ctx.fillRect(-3, -22, 7, 34); ctx.restore(); }
+    ctx.beginPath(); ctx.moveTo(-30, -6); ctx.lineTo(30, -6); ctx.lineTo(22, 32); ctx.lineTo(-22, 32); ctx.closePath(); ctx.fillStyle = '#e0352b'; ctx.fill();
+    estrela(ctx, 0, 12, 9, '#ffcc33');
+  } else if (tipo === 'bebida') {
+    ctx.beginPath(); ctx.moveTo(-22, -24); ctx.lineTo(22, -24); ctx.lineTo(16, 32); ctx.lineTo(-16, 32); ctx.closePath(); ctx.fillStyle = COR.azul1; ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(-22, -30, 44, 8); ctx.fillStyle = '#e0352b'; ctx.save(); ctx.rotate(0.25); ctx.fillRect(4, -52, 5, 28); ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(-12, -10, 5, 30);
+  }
+  ctx.restore();
+}
+
+// ===================== CELULAR =====================
+// ph: {x, y, s, rot, giro}. giro de 0 a 1: largura aparente (efeito de virar o aparelho).
+function celular(ctx, ph, tela) {
+  const giro = ph.giro === undefined ? 1 : ph.giro;
+  ctx.save(); ctx.translate(ph.x, ph.y); ctx.rotate(ph.rot || 0); ctx.scale(ph.s * Math.max(0.02, giro), ph.s);
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 70; ctx.shadowOffsetY = 40;
+  rr(ctx, -210, -435, 420, 870, 66); ctx.fillStyle = '#16181e'; ctx.fill(); ctx.restore();
+  const borda = ctx.createLinearGradient(-210, -435, 210, 435); borda.addColorStop(0, '#5a6070'); borda.addColorStop(0.5, '#1b1e25'); borda.addColorStop(1, '#4a505e');
+  ctx.lineWidth = 5; ctx.strokeStyle = borda; rr(ctx, -210, -435, 420, 870, 66); ctx.stroke();
+  ctx.fillStyle = '#2a2e38'; ctx.fillRect(-215, -260, 5, 70); ctx.fillRect(-215, -170, 5, 70); ctx.fillRect(210, -220, 5, 110);
+  ctx.save(); rr(ctx, -196, -421, SW, SH, 52); ctx.clip(); ctx.translate(-196, -421);
+  ctx.fillStyle = COR.tela; ctx.fillRect(0, 0, SW, SH); tela(ctx);
+  ctx.restore();
+  rr(ctx, -56, -409, 112, 32, 16); ctx.fillStyle = '#000'; ctx.fill();
+  ctx.save(); rr(ctx, -196, -421, SW, SH, 52); ctx.clip();
+  const brilho = ctx.createLinearGradient(-196, -421, 196, 421); brilho.addColorStop(0, 'rgba(255,255,255,0.10)'); brilho.addColorStop(0.35, 'rgba(255,255,255,0)'); brilho.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = brilho; ctx.fillRect(-196, -421, SW, SH);
+  if (giro < 1) { ctx.fillStyle = 'rgba(0,0,0,' + (1 - giro) * 0.7 + ')'; ctx.fillRect(-196, -421, SW, SH); }
+  ctx.restore(); ctx.restore();
+}
+// ponto da tela (em pontos) para coordenadas do vídeo
+function noVideo(ph, sx, sy) {
+  const dx = ph.s * (sx - 196), dy = ph.s * (sy - 421), c = Math.cos(ph.rot || 0), s = Math.sin(ph.rot || 0);
+  return [ph.x + dx * c - dy * s, ph.y + dx * s + dy * c];
+}
+function barraStatus(ctx, cor) {
+  txt(ctx, '20:41', 40, 30, 700, 16, cor);
+  ctx.fillStyle = cor; for (let i = 0; i < 4; i++) ctx.fillRect(292 + i * 6, 34 - i * 3 - 4, 4, 4 + i * 3);
+  ctx.strokeStyle = cor; ctx.lineWidth = 1.5; rr(ctx, 324, 23, 26, 13, 4); ctx.stroke(); ctx.fillRect(327, 26, 18, 7); ctx.fillRect(351, 27, 2, 5);
+}
+function toque(ctx, x, y, p) {
+  if (p <= 0 || p >= 1) return;
+  ctx.save();
+  ctx.globalAlpha = (1 - p) * 0.9; ctx.strokeStyle = COR.azul2; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(x, y, 14 + 46 * sai(p), 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = (1 - p) * 0.55; circulo(ctx, x, y, 22 * (1 - p * 0.4), '#9cc6ff');
+  ctx.restore();
+}
+
+// ===================== TELAS DO APP (ilustrativas) =====================
+const PRATOS = [
+  ['burger', 'Burger da Casa', 'Brioche, blend 180 g e cheddar', 'R$ 32,90', '#fff1df'],
+  ['burger', 'Smash Duplo', 'Dois smash, bacon e molho', 'R$ 36,90', '#fff1df'],
+  ['pizza', 'Pizza Margherita', 'Tomate, muçarela e manjericão', 'R$ 49,90', '#fff6dc'],
+  ['batata', 'Batata Rústica', 'Alecrim e páprica defumada', 'R$ 22,90', '#ffe9e6'],
+  ['bebida', 'Refrigerante', 'Lata 350 ml', 'R$ 6,90', '#e8f1ff'],
+];
+
+function telaConfirmado(ctx, t) {
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SW, SH); barraStatus(ctx, '#111');
+  txt(ctx, TXT.restaurante, SW / 2, 78, 700, 17, '#5b6475', 'center');
+  const pc = sai(progresso(t, 0.0, 0.45));
+  ctx.save(); ctx.translate(SW / 2, 220); ctx.scale(0.6 + 0.4 * salto(pc), 0.6 + 0.4 * salto(pc));
+  ctx.globalAlpha = pc; circulo(ctx, 0, 0, 72, gradAzul(ctx, -72, -72, 72, 72));
+  ctx.globalAlpha = 0.25 * pc; circulo(ctx, 0, 0, 92 + 10 * Math.sin(t * 5), COR.azul2); ctx.globalAlpha = 1;
+  check(ctx, 0, 0, 62, '#fff', 11, progresso(t, 0.25, 0.4));
+  ctx.restore();
+  const pt = sai(progresso(t, 0.35, 0.4));
+  ctx.globalAlpha = pt; txt(ctx, 'Pedido enviado!', SW / 2, 345 + (1 - pt) * 20, 800, 31, COR.texto, 'center');
+  txt(ctx, 'Mesa 7 · Pedido #128', SW / 2, 384 + (1 - pt) * 20, 600, 17, '#6a7384', 'center'); ctx.globalAlpha = 1;
+  const itens = [['burger', '1x Burger da Casa', 'R$ 32,90'], ['batata', '1x Batata Rústica', 'R$ 22,90'], ['bebida', '1x Refrigerante', 'R$ 6,90']];
+  itens.forEach(([tp, nome, preco], i) => {
+    const p = sai(progresso(t, 0.5 + i * 0.12, 0.35)); if (p <= 0) return;
+    ctx.save(); ctx.globalAlpha = p; ctx.translate((1 - p) * 60, 0);
+    const y = 430 + i * 84; rr(ctx, 20, y, SW - 40, 72, 16); ctx.fillStyle = COR.tela; ctx.fill();
+    rr(ctx, 30, y + 10, 52, 52, 12); ctx.fillStyle = '#fff1df'; ctx.fill(); comida(ctx, tp, 56, y + 38, 0.55);
+    txt(ctx, nome, 96, y + 36, 700, 17, COR.texto); txt(ctx, preco, SW - 36, y + 36, 800, 17, COR.azul1, 'right');
+    ctx.restore();
+  });
+  const pt2 = sai(progresso(t, 0.95, 0.35));
+  ctx.globalAlpha = pt2; rr(ctx, 20, 700, SW - 40, 62, 18); ctx.fillStyle = gradAzul(ctx, 20, 0, SW - 20, 0); ctx.fill();
+  txt(ctx, 'Acompanhar pedido', SW / 2, 731, 800, 19, '#fff', 'center'); ctx.globalAlpha = 1;
+}
+
+function telaCamera(ctx, t, okP) {
+  const g = ctx.createLinearGradient(0, 0, 0, SH); g.addColorStop(0, '#3b2717'); g.addColorStop(1, '#22160d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+  ctx.save(); ctx.translate(SW / 2, 400); ctx.scale(0.62, 0.62); ctx.translate(-SW / 2, -400); plaquinhaQR(ctx, SW / 2, 400, 1); ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, SW, SH);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, SW, SH); rr(ctx, SW / 2 - 135, 265, 270, 270, 26); ctx.clip('evenodd');
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, SW, SH); ctx.restore();
+  barraStatus(ctx, '#fff');
+  txt(ctx, 'Aponte para o QR Code', SW / 2, 200, 700, 19, '#fff', 'center');
+  const cor = okP > 0 ? COR.azul2 : '#fff', esc = 1 + 0.08 * Math.sin(okP * Math.PI);
+  ctx.save(); ctx.translate(SW / 2, 400); ctx.scale(esc, esc); ctx.strokeStyle = cor; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  const h = 135, c = 40;
+  [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sy]) => { ctx.beginPath(); ctx.moveTo(sx * h, sy * (h - c)); ctx.lineTo(sx * h, sy * h); ctx.lineTo(sx * (h - c), sy * h); ctx.stroke(); });
+  ctx.restore();
+  if (okP <= 0) {
+    const y = 400 + Math.sin(t * 5) * 115; const lg = ctx.createLinearGradient(0, y - 30, 0, y);
+    lg.addColorStop(0, 'rgba(13,168,255,0)'); lg.addColorStop(1, 'rgba(13,168,255,0.55)'); ctx.fillStyle = lg; ctx.fillRect(SW / 2 - 125, y - 30, 250, 30);
+    ctx.fillStyle = COR.azul2; ctx.fillRect(SW / 2 - 125, y, 250, 4);
+  } else {
+    const p = sai(limita(okP / 0.3));
+    ctx.globalAlpha = p; rr(ctx, SW / 2 - 120, 600, 240, 54, 27); ctx.fillStyle = '#fff'; ctx.fill();
+    circulo(ctx, SW / 2 - 88, 627, 15, COR.azul1); check(ctx, SW / 2 - 88, 627, 15, '#fff', 3.5, limita(okP / 0.4));
+    txt(ctx, 'Abrindo cardápio', SW / 2 + 12, 628, 800, 17, COR.texto, 'center'); ctx.globalAlpha = 1;
+  }
+}
+
+// o: {rolagem, tocaItem, pToque, folha, pAdd, carrinho, pEnviar, enviado}
+function telaCardapio(ctx, t, o) {
+  ctx.fillStyle = COR.tela; ctx.fillRect(0, 0, SW, SH);
+  ctx.save(); ctx.translate(0, -(o.rolagem || 0));
+  const capa = ctx.createLinearGradient(0, 0, SW, 190); capa.addColorStop(0, '#ff8a3d'); capa.addColorStop(1, '#e2382b');
+  ctx.fillStyle = capa; ctx.fillRect(0, 0, SW, 190);
+  comida(ctx, 'burger', 300, 105, 1.25); comida(ctx, 'batata', 190, 110, 0.9);
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.12)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 6;
+  rr(ctx, 16, 150, SW - 32, 92, 22); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
+  circulo(ctx, 58, 196, 26, '#11141b'); txt(ctx, 'S', 58, 197, 800, 22, '#fff', 'center');
+  txt(ctx, TXT.restaurante, 98, 182, 800, 21, COR.texto);
+  circulo(ctx, 104, 212, 5, COR.verde); txt(ctx, 'Aberto agora · Mesa 7', 116, 212, 600, 14, '#6a7384');
+  const chips = ['Burgers', 'Pizzas', 'Porções', 'Bebidas']; let cx = 16;
+  ctx.font = F(700, 15);
+  chips.forEach((c, i) => { const w = ctx.measureText(c).width + 34; rr(ctx, cx, 262, w, 40, 20);
+    if (i === 0) { ctx.fillStyle = gradAzul(ctx, cx, 0, cx + w, 0); ctx.fill(); txt(ctx, c, cx + w / 2, 283, 700, 15, '#fff', 'center'); }
+    else { ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#dde3ee'; ctx.lineWidth = 1.5; ctx.stroke(); txt(ctx, c, cx + w / 2, 283, 700, 15, '#3c4454', 'center'); }
+    cx += w + 8; });
+  txt(ctx, 'Mais pedidos', 20, 332, 800, 21, COR.texto);
+  PRATOS.forEach(([tp, nome, desc, preco, fundo], i) => {
+    const y = 352 + i * 122, toc = i === o.tocaItem ? o.pToque || 0 : 0;
+    ctx.save(); const e = 1 - 0.04 * Math.sin(toc * Math.PI); ctx.translate(SW / 2, y + 55); ctx.scale(e, e); ctx.translate(-SW / 2, -(y + 55));
+    ctx.shadowColor = 'rgba(17,20,27,0.08)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 4;
+    rr(ctx, 16, y, SW - 32, 110, 20); ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent';
+    if (i === o.tocaItem && toc > 0) { ctx.strokeStyle = COR.azul2; ctx.lineWidth = 3; ctx.globalAlpha = Math.sin(toc * Math.PI); rr(ctx, 16, y, SW - 32, 110, 20); ctx.stroke(); ctx.globalAlpha = 1; }
+    rr(ctx, 28, y + 13, 84, 84, 16); ctx.fillStyle = fundo; ctx.fill(); comida(ctx, tp, 70, y + 57, 0.95);
+    txt(ctx, nome, 128, y + 32, 800, 18, COR.texto); txt(ctx, desc, 128, y + 56, 500, 13, '#7a8394');
+    txt(ctx, preco, 128, y + 84, 800, 17, COR.azul1);
+    circulo(ctx, SW - 48, y + 82, 17, '#eef3ff'); txt(ctx, '+', SW - 48, y + 81, 700, 22, COR.azul1, 'center');
+    ctx.restore();
+  });
+  ctx.restore();
+  ctx.fillStyle = 'rgba(244,246,251,0.92)'; ctx.fillRect(0, 0, SW, 48); barraStatus(ctx, '#111');
+  if (o.tocaItem !== undefined && o.pToque > 0) toque(ctx, 250, 352 + o.tocaItem * 122 + 55 - (o.rolagem || 0), o.pToque);
+  // barra do pedido
+  const pc = sai(limita(o.carrinho || 0));
+  if (pc > 0) {
+    const y = SH - 104 + (1 - pc) * 120;
+    ctx.save(); ctx.shadowColor = 'rgba(29,108,247,0.45)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
+    rr(ctx, 16, y, SW - 32, 68, 22); ctx.fillStyle = o.enviado > 0 ? '#14b86a' : gradAzul(ctx, 16, 0, SW - 16, 0); ctx.fill(); ctx.restore();
+    if (o.enviado > 0) { check(ctx, 52, y + 34, 22, '#fff', 4.5, limita(o.enviado / 0.6)); txt(ctx, 'Pedido enviado', 80, y + 35, 800, 19, '#fff'); }
+    else {
+      rr(ctx, 30, y + 18, 34, 32, 10); ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill(); txt(ctx, '1', 47, y + 35, 800, 17, '#fff', 'center');
+      txt(ctx, 'Enviar pedido', 78, y + 35, 800, 19, '#fff'); txt(ctx, 'R$ 32,90', SW - 36, y + 35, 800, 18, '#fff', 'right');
+    }
+    toque(ctx, 200, y + 34, o.pEnviar || 0);
+  }
+  // folha do prato
+  const pf = o.folha || 0;
+  if (pf > 0) {
+    ctx.fillStyle = 'rgba(10,12,18,' + 0.5 * limita(pf * 2) + ')'; ctx.fillRect(0, 0, SW, SH);
+    const y = SH - 500 * sai(pf);
+    ctx.save(); rr(ctx, 0, y, SW, 540, 30); ctx.fillStyle = '#fff'; ctx.fill(); ctx.clip();
+    rr(ctx, SW / 2 - 24, y + 10, 48, 5, 3); ctx.fillStyle = '#d7dce6'; ctx.fill();
+    rr(ctx, 18, y + 28, SW - 36, 180, 22); ctx.fillStyle = '#fff1df'; ctx.fill(); comida(ctx, 'burger', SW / 2, y + 122, 2.1);
+    txt(ctx, 'Burger da Casa', 24, y + 244, 800, 27, COR.texto);
+    txt(ctx, 'Brioche, blend 180 g e cheddar', 24, y + 278, 500, 15, '#6a7384');
+    txt(ctx, 'R$ 32,90', 24, y + 316, 800, 22, COR.azul1);
+    rr(ctx, SW - 150, y + 296, 128, 42, 21); ctx.fillStyle = COR.tela; ctx.fill();
+    txt(ctx, '–', SW - 124, y + 316, 700, 22, '#3c4454', 'center'); txt(ctx, '1', SW - 86, y + 317, 800, 19, COR.texto, 'center'); txt(ctx, '+', SW - 48, y + 316, 700, 22, COR.azul1, 'center');
+    const pa = o.pAdd || 0, eb = 1 - 0.05 * Math.sin(pa * Math.PI);
+    ctx.save(); ctx.translate(SW / 2, y + 400); ctx.scale(eb, eb);
+    rr(ctx, -(SW - 40) / 2, -32, SW - 40, 64, 20); ctx.fillStyle = gradAzul(ctx, -170, 0, 170, 0); ctx.fill();
+    txt(ctx, 'Adicionar ao pedido', 0, 1, 800, 19, '#fff', 'center'); ctx.restore();
+    toque(ctx, SW / 2 + 40, y + 400, pa);
+    ctx.restore();
+  }
+}
+
+function telaRestaurante(ctx, t, chegada) {
+  ctx.fillStyle = COR.escuro; ctx.fillRect(0, 0, SW, SH); barraStatus(ctx, '#fff');
+  txt(ctx, 'Pedidos', 24, 92, 800, 30, '#fff'); txt(ctx, TXT.restaurante, 24, 126, 600, 15, '#8b93a3');
+  rr(ctx, SW - 118, 76, 96, 34, 17); ctx.fillStyle = 'rgba(37,211,102,0.15)'; ctx.fill();
+  circulo(ctx, SW - 98, 93, 5 + Math.sin(t * 6), COR.verde); txt(ctx, 'Ao vivo', SW - 86, 94, 700, 14, COR.verde);
+  const pc = limita(chegada), desce = 150 * sai(limita(pc / 0.6));
+  const antigos = [['Mesa 3 · #127', 'há 4 min', '2x Pizza Margherita', 'R$ 99,80'], ['Mesa 12 · #126', 'há 9 min', '1x Smash Duplo · 1x Refrigerante', 'R$ 43,80'], ['Mesa 5 · #125', 'há 15 min', '3x Batata Rústica', 'R$ 68,70']];
+  antigos.forEach(([m, h, it, v], i) => {
+    const y = 160 + i * 150 + desce; ctx.globalAlpha = 0.75;
+    rr(ctx, 16, y, SW - 32, 134, 20); ctx.fillStyle = '#1a1f2b'; ctx.fill();
+    txt(ctx, m, 36, y + 34, 800, 18, '#fff'); txt(ctx, h, SW - 36, y + 34, 600, 14, '#8b93a3', 'right');
+    txt(ctx, it, 36, y + 70, 500, 15, '#c4cad6'); txt(ctx, v, 36, y + 104, 800, 16, COR.azul2); ctx.globalAlpha = 1;
+  });
+  if (pc > 0.35) {
+    const p = limita((pc - 0.35) / 0.65), e = salto(p);
+    ctx.save(); ctx.translate(SW / 2, 160 + 67); ctx.scale(0.7 + 0.3 * e, 0.7 + 0.3 * e); ctx.globalAlpha = limita(p * 3);
+    ctx.shadowColor = 'rgba(13,168,255,' + (0.5 + 0.3 * Math.sin(t * 5)) + ')'; ctx.shadowBlur = 30;
+    rr(ctx, -(SW - 32) / 2, -67, SW - 32, 134, 20); ctx.fillStyle = '#1d2433'; ctx.fill(); ctx.shadowColor = 'transparent';
+    ctx.lineWidth = 3; ctx.strokeStyle = gradAzul(ctx, -180, 0, 180, 0); ctx.stroke();
+    const x0 = -(SW - 32) / 2;
+    txt(ctx, 'Mesa 7 · #128', x0 + 20, -33, 800, 19, '#fff');
+    rr(ctx, (SW - 32) / 2 - 86, -50, 68, 30, 15); ctx.fillStyle = gradAzul(ctx, 0, 0, 80, 0); ctx.fill(); txt(ctx, 'NOVO', (SW - 32) / 2 - 52, -34, 800, 14, '#fff', 'center');
+    txt(ctx, '1x Burger da Casa', x0 + 20, 3, 600, 15, '#e3e7ef'); txt(ctx, 'R$ 32,90', x0 + 20, 37, 800, 17, COR.azul2);
+    txt(ctx, 'agora', (SW - 32) / 2 - 20, 37, 600, 14, '#8b93a3', 'right');
+    ctx.restore();
+  }
+}
+
+function telaLogin(ctx, t, dig, pToque) {
+  ctx.fillStyle = COR.tela; ctx.fillRect(0, 0, SW, SH);
+  ctx.fillStyle = gradAzul(ctx, 0, 0, SW, 260); ctx.fillRect(0, 0, SW, 270); barraStatus(ctx, '#fff');
+  circulo(ctx, SW / 2, 120, 42, COR.ouro); estrela(ctx, SW / 2, 122, 24, '#8a5a00');
+  txt(ctx, 'Cartão Fidelidade', SW / 2, 200, 800, 27, '#fff', 'center'); txt(ctx, TXT.restaurante, SW / 2, 234, 600, 15, 'rgba(255,255,255,0.8)', 'center');
+  txt(ctx, 'Seu número de WhatsApp', 24, 312, 700, 16, '#3c4454');
+  rr(ctx, 20, 332, SW - 40, 70, 18); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = COR.azul2; ctx.stroke();
+  iconeWhats(ctx, 56, 367, 17);
+  const s = TXT.numero.slice(0, Math.floor(TXT.numero.length * limita(dig)));
+  txt(ctx, s, 86, 368, 700, 23, COR.texto);
+  ctx.font = F(700, 23); if (Math.floor(t * 2.5) % 2 === 0 || dig < 1) { ctx.fillStyle = COR.azul1; ctx.fillRect(88 + ctx.measureText(s).width, 352, 2.5, 32); }
+  const eb = 1 - 0.05 * Math.sin(limita(pToque) * Math.PI);
+  ctx.save(); ctx.translate(SW / 2, 452); ctx.scale(eb, eb); ctx.globalAlpha = dig >= 1 ? 1 : 0.45;
+  rr(ctx, -(SW - 40) / 2, -32, SW - 40, 64, 20); ctx.fillStyle = gradAzul(ctx, -170, 0, 170, 0); ctx.fill();
+  txt(ctx, 'Ver meu cartão', 0, 1, 800, 19, '#fff', 'center'); ctx.restore();
+  toque(ctx, SW / 2 + 30, 452, pToque);
+  cadeado(ctx, 34, 530, 18, '#6a7384'); txt(ctx, 'Seu progresso fica salvo no seu número', 52, 531, 600, 14, '#6a7384');
+}
+
+// geometria do cartão (em pontos da tela)
+const CARTAO = { x: 18, y: 150, w: SW - 36, h: 270 };
+function casaSelo(i) { return [CARTAO.x + 40 + (i % 5) * 69, CARTAO.y + 142 + Math.floor(i / 5) * 72]; }
+function seloDesenho(ctx, x, y, r) {
+  circulo(ctx, x, y, r, COR.ouro); ctx.strokeStyle = COR.ouroEsc; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.arc(x, y, r * 0.82, 0, Math.PI * 2); ctx.stroke();
+  estrela(ctx, x, y + r * 0.03, r * 0.5, '#8a5a00');
+}
+// o: {selos, pLiga, brilho}
+function telaCartao(ctx, t, o) {
+  ctx.fillStyle = COR.tela; ctx.fillRect(0, 0, SW, SH); barraStatus(ctx, '#111');
+  txt(ctx, '‹', 26, 82, 600, 34, COR.texto); txt(ctx, 'Meu cartão', 50, 84, 800, 21, COR.texto);
+  const liga = o.pLiga || 0, pul = liga > 0 ? 0.5 + 0.5 * Math.sin(t * 7) : 0;
+  ctx.save(); if (liga > 0) { ctx.shadowColor = 'rgba(37,211,102,' + 0.7 * pul + ')'; ctx.shadowBlur = 24; }
+  rr(ctx, SW - 196, 64, 176, 40, 20); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
+  ctx.lineWidth = liga > 0 ? 2.5 : 1.5; ctx.strokeStyle = liga > 0 ? COR.verde : '#dde3ee'; rr(ctx, SW - 196, 64, 176, 40, 20); ctx.stroke();
+  iconeWhats(ctx, SW - 174, 84, 12); txt(ctx, TXT.numero, SW - 156, 85, 700, 14, COR.texto);
+  // cartão
+  ctx.save(); ctx.shadowColor = 'rgba(29,108,247,0.4)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 12;
+  rr(ctx, CARTAO.x, CARTAO.y, CARTAO.w, CARTAO.h, 28); ctx.fillStyle = gradAzul(ctx, CARTAO.x, CARTAO.y, CARTAO.x + CARTAO.w, CARTAO.y + CARTAO.h); ctx.fill(); ctx.restore();
+  ctx.save(); rr(ctx, CARTAO.x, CARTAO.y, CARTAO.w, CARTAO.h, 28); ctx.clip();
+  ctx.globalAlpha = 0.12; circulo(ctx, CARTAO.x + CARTAO.w - 30, CARTAO.y + 10, 120, '#fff'); circulo(ctx, CARTAO.x + 40, CARTAO.y + CARTAO.h + 20, 90, '#fff'); ctx.globalAlpha = 1;
+  if (o.brilho > 0 && o.brilho < 1) { const bx = CARTAO.x - 120 + (CARTAO.w + 240) * o.brilho; const bg = ctx.createLinearGradient(bx - 60, 0, bx + 60, 0);
+    bg.addColorStop(0, 'rgba(255,255,255,0)'); bg.addColorStop(0.5, 'rgba(255,255,255,0.35)'); bg.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = bg; ctx.fillRect(CARTAO.x, CARTAO.y, CARTAO.w, CARTAO.h); }
+  ctx.restore();
+  ctx.save(); ctx.font = F(800, 13); ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.textBaseline = 'middle'; ctx.letterSpacing = '3px'; ctx.fillText('CARTÃO VIP', CARTAO.x + 22, CARTAO.y + 34); ctx.restore();
+  txt(ctx, TXT.restaurante, CARTAO.x + 22, CARTAO.y + 66, 800, 22, '#fff');
+  for (let i = 0; i < 10; i++) {
+    const [x, y] = casaSelo(i);
+    if (i < Math.floor(o.selos)) seloDesenho(ctx, x, y, 25);
+    else if (i === 9) { ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 25, 0, Math.PI * 2); ctx.stroke();
+      rr(ctx, x - 11, y - 4, 22, 15, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 11); ctx.moveTo(x - 13, y - 4); ctx.lineTo(x + 13, y - 4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x - 4, y - 8, 4, 0, Math.PI * 2); ctx.arc(x + 4, y - 8, 4, 0, Math.PI * 2); ctx.stroke(); }
+    else { ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 24, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
+  }
+  const n = Math.floor(o.selos);
+  txt(ctx, n + ' de 10 selos', 24, 468, 800, 22, COR.texto);
+  rr(ctx, 24, 490, SW - 48, 14, 7); ctx.fillStyle = '#dfe5f0'; ctx.fill();
+  const larg = (SW - 48) * limita(o.barra === undefined ? n / 10 : o.barra);
+  rr(ctx, 24, 490, Math.max(14, larg), 14, 7); ctx.fillStyle = gradAzul(ctx, 24, 0, SW - 24, 0); ctx.fill();
+  ctx.save(); if (liga > 0) { ctx.globalAlpha = 0.6 + 0.4 * pul; }
+  rr(ctx, 20, 528, SW - 40, 58, 16); ctx.fillStyle = liga > 0 ? 'rgba(37,211,102,0.12)' : '#fff'; ctx.fill(); ctx.restore();
+  iconeWhats(ctx, 46, 557, 12); txt(ctx, 'Progresso salvo no seu WhatsApp', 66, 558, 700, 15, '#2b3240');
+  // linha que liga a casa preenchida ao número
+  if (liga > 0) {
+    const [sx, sy] = casaSelo(Math.max(0, n - 1)), ex = SW - 108, ey = 104, p = sai(limita(liga));
+    ctx.save(); ctx.strokeStyle = COR.verde; ctx.lineWidth = 4; ctx.setLineDash([8, 8]); ctx.lineDashOffset = -t * 40; ctx.lineCap = 'round';
+    ctx.beginPath(); const pts = 40;
+    for (let i = 0; i <= pts * p; i++) { const u = i / pts; const x = mistura(sx, ex, u) + Math.sin(u * Math.PI) * 40, y = mistura(sy - 26, ey, u); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke(); ctx.restore();
+  }
+}
+
+// ===================== LOGOS =====================
+// logo RS² Digital redesenhada a partir do arquivo enviado (assets/logo-rs2-digital.png)
+const OFF = document.createElement('canvas'); OFF.width = 1800; OFF.height = 900;
+function logoRS2(ctx, x, y, h, giro, comDigital = true, brilho = -1) {
+  if (!(brilho >= 0 && brilho <= 1)) { desenhaLogo(ctx, x, y, h, giro, comDigital, -1); return; }
+  // o brilho precisa de uma tela separada para pintar só as letras
+  const o = OFF.getContext('2d'); o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, 1800, 900);
+  desenhaLogo(o, 900, 450, h, giro, comDigital, brilho);
+  ctx.drawImage(OFF, x - 900, y - 450);
+}
+function desenhaLogo(ctx, x, y, h, giro, comDigital, brilho) {
+  ctx.save(); ctx.translate(x, y);
+  const c = Math.cos(giro), sn = Math.sin(giro);
+  ctx.font = F(900, h); const wRS = ctx.measureText('RS').width;
+  ctx.font = F(800, h * 0.42); const w2 = ctx.measureText('2').width;
+  ctx.font = F(700, h * 0.3); const wD = comDigital ? ctx.measureText('Digital').width : 0;
+  const total = wRS + w2 * 0.6 + (comDigital ? wD + h * 0.04 : 0);
+  ctx.scale(Math.abs(c) < 0.03 ? 0.03 * Math.sign(c || 1) : c, 1);
+  const x0 = -total / 2;
+  // espessura 3D
+  for (let i = 10; i >= 1; i--) {
+    const off = sn * i * h * 0.012;
+    ctx.font = F(900, h); ctx.fillStyle = i > 5 ? '#08224f' : '#0b3d8f'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText('RS', x0 + off, h * 0.36);
+  }
+  ctx.font = F(900, h); ctx.fillStyle = gradAzul(ctx, x0, -h * 0.4, x0 + wRS, h * 0.4); ctx.fillText('RS', x0, h * 0.36);
+  ctx.font = F(800, h * 0.42); ctx.fillStyle = gradAzul(ctx, x0 + wRS, 0, x0 + wRS + w2, 0); ctx.fillText('2', x0 + wRS + h * 0.02, -h * 0.2);
+  if (comDigital) { ctx.font = F(700, h * 0.3); ctx.fillStyle = '#fff'; ctx.fillText('Digital', x0 + wRS + h * 0.04, h * 0.3); }
+  if (brilho >= 0 && brilho <= 1) {
+    ctx.globalCompositeOperation = 'source-atop';
+    const bx = x0 - h + (total + 2 * h) * brilho; const g = ctx.createLinearGradient(bx - h * 0.3, -h, bx + h * 0.3, h);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(x0 - h, -h, total + 2 * h, 2 * h);
+  }
+  ctx.restore();
+}
+function marcaVipMenu(ctx, x, y, tam) {
+  ctx.save(); ctx.font = F(900, tam); const wV = ctx.measureText('Vip').width, wM = ctx.measureText('Menu').width; const x0 = x - (wV + wM) / 2;
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.shadowColor = 'rgba(13,168,255,0.45)'; ctx.shadowBlur = 40;
+  ctx.fillStyle = gradAzul(ctx, x0, 0, x0 + wV, 0); ctx.fillText('Vip', x0, y);
+  ctx.fillStyle = '#fff'; ctx.fillText('Menu', x0 + wV, y);
+  // coroa sobre o i
+  estrela(ctx, x0 + wV * 0.73, y - tam * 0.62, tam * 0.13, COR.ouro);
+  ctx.restore();
+}
+
+// ===================== CENAS =====================
+function cena1Gancho(ctx, t, d) {
+  fundoMarca(ctx, t); particulas(ctx, t, 30, 3, COR.azul2, 0.6);
+  const sai2 = entra(progresso(t, 2.62, 0.38));
+  const ph = { x: 540 + Math.sin(t * 1.3) * 10, y: 1110 - t * 18 - sai2 * 200, s: 1.08 + t * 0.05 + sai2 * 1.6, rot: mistura(-0.13, 0.04, suave(progresso(t, 0, 2.6))) };
+  celular(ctx, ph, (c) => telaConfirmado(c, t));
+  // card de pedido saltando para fora da tela
+  const pc = progresso(t, 0.55, 0.45);
+  if (pc > 0 && sai2 < 0.5) {
+    const e = salto(pc), [px, py] = noVideo(ph, 196, 120);
+    ctx.save(); ctx.translate(mistura(px, 330, sai(pc)), mistura(py, 660 - t * 10, sai(pc))); ctx.rotate(-0.07 + Math.sin(t * 2) * 0.02); ctx.scale(e, e);
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 20;
+    rr(ctx, -250, -62, 500, 124, 30); ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent';
+    circulo(ctx, -186, 0, 38, gradAzul(ctx, -224, -38, -148, 38)); check(ctx, -186, 0, 34, '#fff', 7, limita((t - 0.7) / 0.3));
+    txt(ctx, 'Pedido confirmado', -132, -18, 800, 34, COR.texto); txt(ctx, 'Mesa 7 · agora', -132, 24, 600, 26, '#6a7384');
+    ctx.restore();
+  }
+  manchete(ctx, [[['O cliente ', 'w'], ['pediu hoje.', 'b']]], 330, 88, t, 0.05, 1.5);
+  manchete(ctx, [[['O que faz ele', 'w']], [['voltar ', 'w'], ['amanhã?', 'b']]], 280, 96, t, 1.5, 2.9);
+  if (sai2 > 0) { ctx.fillStyle = 'rgba(13,168,255,' + sai2 * 0.9 + ')'; ctx.fillRect(0, 0, L, A); }
+  etiqueta(ctx, 'PRÉVIA · tela ilustrativa');
+}
+
+function cena2Marca(ctx, t, d) {
+  fundoMarca(ctx, t + 3, 1.2);
+  // linhas de velocidade puxadas para o centro
+  const r = rng(9), pv = 1 - progresso(t, 0.9, 0.4);
+  if (pv > 0) for (let i = 0; i < 60; i++) {
+    const a = r() * Math.PI * 2, base = 200 + r() * 900, vel = 900 + r() * 900, rr2 = ((base - t * vel) % 1100 + 1100) % 1100 + 140;
+    ctx.globalAlpha = 0.5 * pv; ctx.strokeStyle = i % 3 ? COR.azul2 : '#fff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(540 + Math.cos(a) * rr2, 860 + Math.sin(a) * rr2); ctx.lineTo(540 + Math.cos(a) * (rr2 + 80), 860 + Math.sin(a) * (rr2 + 80)); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const ps = progresso(t, 0, 1.1), giro = (1 - sai(ps)) * Math.PI * 5;
+  const sobe = suave(progresso(t, 1.55, 0.45));
+  const esc = mistura(0.35, 1, sai(ps)) * mistura(1, 0.62, sobe);
+  const impacto = progresso(t, 1.1, 0.5);
+  const treme = impacto > 0 && impacto < 1 ? (1 - impacto) * 14 : 0;
+  ctx.save(); ctx.translate(Math.sin(t * 90) * treme, Math.cos(t * 77) * treme);
+  if (impacto > 0 && impacto < 1) { ctx.globalAlpha = 1 - impacto; ctx.strokeStyle = COR.azul2; ctx.lineWidth = 10 * (1 - impacto);
+    ctx.beginPath(); ctx.arc(540, 860, 200 + 520 * sai(impacto), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+  const g = ctx.createRadialGradient(540, 860, 0, 540, 860, 520); g.addColorStop(0, 'rgba(13,168,255,0.35)'); g.addColorStop(1, 'rgba(13,168,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 300, L, 1100);
+  logoRS2(ctx, 540, mistura(860, 560, sobe), 300 * esc, giro, true, progresso(t, 1.15, 0.5));
+  ctx.restore();
+  const pa = sai(progresso(t, 1.6, 0.35));
+  ctx.globalAlpha = pa; txt(ctx, 'apresenta', 540, 730 + (1 - pa) * 20, 600, 46, '#b9c3d6', 'center'); ctx.globalAlpha = 1;
+  const pv2 = progresso(t, 1.75, 0.4);
+  if (pv2 > 0) { const e = salto(pv2); ctx.save(); ctx.translate(540, 900); const z = e * (1 + entra(progresso(t, 2.15, 0.25)) * 3); ctx.scale(z, z); marcaVipMenu(ctx, 0, 0, 170); ctx.restore(); }
+  const flashIn = 1 - progresso(t, 0, 0.18), flash = impacto > 0 ? (1 - progresso(t, 1.1, 0.2)) * 0.8 : 0, saida = entra(progresso(t, 2.2, 0.2));
+  const f = Math.max(flashIn * 0.9, flash, saida);
+  if (f > 0) { ctx.fillStyle = 'rgba(' + (flash > flashIn ? '255,255,255' : '13,168,255') + ',' + f + ')'; ctx.fillRect(0, 0, L, A); }
+  if (t > 1.6) etiqueta(ctx, 'PRÉVIA · logo VipMenu provisória');
+}
+
+// estado do celular entre 5,4 s e 25 s (t global)
+function celularMeio(T) {
+  const entraP = sai(progresso(T, 5.55, 0.7)), zoom = suave(progresso(T, 7.0, 0.65));
+  let ph = { x: mistura(540, 560, entraP), y: mistura(2500, 1420, entraP), s: 0.86, rot: mistura(0.25, 0.07, entraP) };
+  ph = { x: mistura(ph.x, 540, zoom), y: mistura(ph.y, 1090, zoom), s: mistura(ph.s, 1.24, zoom), rot: mistura(ph.rot, 0, zoom) };
+  ph.y += Math.sin(T * 1.1) * 6;
+  // pedido: celular desce um pouco enquanto o pedido sobe
+  const desce = suave(progresso(T, 12.25, 0.5)) * (1 - suave(progresso(T, 13.4, 0.5)));
+  ph.y += desce * 140; ph.s -= desce * 0.1;
+  // fidelidade: recorte ampliado no cartão
+  const amplia = suave(progresso(T, 19.45, 0.6));
+  ph = { ...ph, x: ph.x, y: mistura(ph.y, 1180, amplia), s: mistura(ph.s, 1.52, amplia) };
+  // giros do aparelho
+  const g1 = progresso(T, 12.85, 0.6), g2 = progresso(T, 16.85, 0.6);
+  ph.giro = 1; ph.lado = 'cliente';
+  if (g1 > 0 && g2 === 0) { ph.giro = Math.abs(Math.cos(suave(g1) * Math.PI)); ph.lado = g1 < 0.5 ? 'cliente' : 'restaurante'; }
+  if (g2 > 0) { ph.giro = Math.abs(Math.cos(suave(g2) * Math.PI)); ph.lado = g2 < 0.5 ? 'restaurante' : 'cliente2'; }
+  if (g1 >= 1 && g2 === 0) ph.lado = 'restaurante';
+  return ph;
+}
+function telaMeio(c, T, ph) {
+  if (ph.lado === 'restaurante') { telaRestaurante(c, T, progresso(T, 13.55, 0.75)); return; }
+  if (ph.lado === 'cliente2') {
+    const troca = progresso(T, 19.35, 0.4);
+    if (troca < 1) telaLogin(c, T, progresso(T, 17.7, 1.1), progresso(T, 19.05, 0.45));
+    if (troca > 0) { c.save(); c.translate(SW * (1 - sai(troca)), 0); telaCartao(c, T, estadoCartao(T)); c.restore(); }
+    return;
+  }
+  const abre = progresso(T, 7.1, 0.5);
+  if (abre < 1) telaCamera(c, T, progresso(T, 6.55, 0.6));
+  if (abre > 0) {
+    c.save(); c.translate(0, SH * (1 - sai(abre))); c.globalAlpha = limita(abre * 2);
+    telaCardapio(c, T, {
+      rolagem: 150 * suave(progresso(T, 7.8, 1.2)) - 10 * Math.sin(progresso(T, 7.8, 1.6) * Math.PI) * 0,
+      tocaItem: 0, pToque: progresso(T, 9.25, 0.5),
+      folha: progresso(T, 9.55, 0.55) * (1 - progresso(T, 11.05, 0.4)),
+      pAdd: progresso(T, 10.75, 0.5),
+      carrinho: progresso(T, 11.2, 0.4), pEnviar: progresso(T, 11.85, 0.5), enviado: progresso(T, 12.05, 0.8),
+    });
+    c.restore();
+  }
+}
+function estadoCartao(T) {
+  const carimbo = progresso(T, 21.25, 0.01);
+  return { selos: carimbo > 0 ? 5 : 4, pLiga: progresso(T, 21.7, 0.8), brilho: progresso(T, 21.3, 0.7), barra: mistura(0.4, 0.5, sai(progresso(T, 21.3, 0.5))) };
+}
+
+function cena3Cardapio(ctx, t, d, T) {
+  const zoom = suave(progresso(T, 7.0, 0.65));
+  ctx.save(); ctx.translate(540, 1000); ctx.scale(1 + zoom * 0.35, 1 + zoom * 0.35); ctx.translate(-540, -1000);
+  ctx.translate(0, -T * 4); mesa(ctx); ctx.globalAlpha = 1 - zoom; plaquinhaQR(ctx, 540, 820 - zoom * 120, 0.95); ctx.globalAlpha = 1; ctx.restore();
+  ctx.fillStyle = 'rgba(9,9,11,' + (0.15 + 0.6 * zoom) + ')'; ctx.fillRect(0, 0, L, A);
+  const ph = celularMeio(T); celular(ctx, ph, (c) => telaMeio(c, T, ph));
+  // bip do scan: anel saindo do celular
+  const pb = progresso(T, 6.55, 0.5);
+  if (pb > 0 && pb < 1) { const [x, y] = noVideo(ph, 196, 400); ctx.globalAlpha = 1 - pb; ctx.strokeStyle = COR.azul2; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(x, y, 120 + 300 * sai(pb), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+  manchete(ctx, [[['Escaneou.', 'w']]], 290, 100, T, 5.75, 10.35);
+  manchete(ctx, [[['Abriu o ', 'w'], ['cardápio.', 'b']]], 404, 100, T, 7.35, 10.35);
+  const flash = 1 - progresso(t, 0, 0.25); if (flash > 0) { ctx.fillStyle = 'rgba(13,168,255,' + flash * 0.9 + ')'; ctx.fillRect(0, 0, L, A); }
+  if (T > 6.0) etiqueta(ctx, 'PRÉVIA · trocar pelos prints reais');
+}
+
+function cena4Pedido(ctx, t, d, T) {
+  ctx.save(); ctx.translate(540, 1000); ctx.scale(1.35, 1.35); ctx.translate(-540, -1000); ctx.translate(0, -T * 4); mesa(ctx); ctx.restore();
+  ctx.fillStyle = 'rgba(9,9,11,0.75)'; ctx.fillRect(0, 0, L, A);
+  const lado = suave(progresso(T, 13.2, 0.8));
+  if (lado > 0) { ctx.globalAlpha = lado; fundoMarca(ctx, T, 1); ctx.globalAlpha = 1; }
+  const ph = celularMeio(T); celular(ctx, ph, (c) => telaMeio(c, T, ph));
+  // o pedido sai do celular, sobe e cai do lado do restaurante
+  const voa = progresso(T, 12.25, 1.6);
+  if (voa > 0 && voa < 1) {
+    const sobe = sai(limita(voa / 0.45)), cai = entra(limita((voa - 0.62) / 0.38));
+    const [x0, y0] = [540, 1500], [x1, y1] = [540, 660], [x2, y2] = noVideo(ph, 196, 227);
+    const x = cai > 0 ? mistura(x1, x2, cai) : mistura(x0, x1, sobe), y = cai > 0 ? mistura(y1, y2, cai) : mistura(y0, y1, sobe);
+    const s = cai > 0 ? mistura(1, 0.55, cai) : mistura(0.5, 1, sobe), rot = cai > 0 ? mistura(0.06, 0, cai) : mistura(-0.1, 0.06, sobe);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s); ctx.globalAlpha = 1 - limita((cai - 0.85) / 0.15);
+    ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 24;
+    rr(ctx, -330, -130, 660, 260, 34); ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent';
+    rr(ctx, -330, -130, 660, 70, 34); ctx.fillStyle = gradAzul(ctx, -330, 0, 330, 0); ctx.fill(); ctx.fillRect(-330, -90, 660, 30);
+    txt(ctx, 'Pedido #128 · Mesa 7', -296, -94, 800, 32, '#fff');
+    rr(ctx, -296, -34, 84, 84, 18); ctx.fillStyle = '#fff1df'; ctx.fill(); comida(ctx, 'burger', -254, 9, 0.95);
+    txt(ctx, '1x Burger da Casa', -190, -6, 800, 34, COR.texto); txt(ctx, 'R$ 32,90', -190, 38, 800, 32, COR.azul1);
+    ctx.restore();
+  }
+  const pd = progresso(T, 14.3, 0.6);
+  if (pd > 0 && pd < 1) { const [x, y] = noVideo(ph, 196, 227); ctx.globalAlpha = 1 - pd; ctx.strokeStyle = COR.azul2; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(x, y, 160 + 320 * sai(pd), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+  manchete(ctx, [[['Um canal próprio', 'w']], [['para receber ', 'w'], ['pedidos.', 'b']]], 286, 92, T, 12.35, 16.9);
+  etiqueta(ctx, T < 13.1 ? 'PRÉVIA · trocar pelos prints reais' : 'PRÉVIA · fluxo do pedido a confirmar');
+}
+
+function cena5Fidelidade(ctx, t, d, T) {
+  fundoMarca(ctx, T, 1.1);
+  const dourado = progresso(T, 21.25, 0.6);
+  if (dourado > 0) { const g = ctx.createRadialGradient(540, 1000, 0, 540, 1000, 900); g.addColorStop(0, 'rgba(255,200,61,' + 0.28 * (1 - dourado * 0.5) + ')'); g.addColorStop(1, 'rgba(255,200,61,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, L, A); }
+  const imp = progresso(T, 21.25, 0.45), treme = imp > 0 && imp < 1 ? (1 - imp) * 18 : 0;
+  ctx.save(); ctx.translate(Math.sin(T * 95) * treme, Math.cos(T * 83) * treme);
+  const ph = celularMeio(T); celular(ctx, ph, (c) => telaMeio(c, T, ph));
+  // carimbo gigante caindo na 5ª casa
+  const [cx, cy] = noVideo(ph, ...casaSelo(4)), cai = progresso(T, 20.75, 0.5);
+  if (cai > 0 && cai < 1) {
+    const e = entra(cai), s = mistura(5.5, 1, e) * ph.s, rot = mistura(-0.9, 0, e);
+    ctx.save(); ctx.translate(mistura(cx + 260, cx, e), mistura(cy - 700, cy, e)); ctx.rotate(rot); ctx.scale(s, s); ctx.globalAlpha = limita(cai * 4);
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 20 * (1 - e); seloDesenho(ctx, 0, 0, 25); ctx.restore();
+  }
+  if (imp > 0 && imp < 1) {
+    const r = rng(31); ctx.save(); ctx.translate(cx, cy);
+    for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; ctx.globalAlpha = 1 - imp; ctx.strokeStyle = COR.ouro; ctx.lineWidth = 7 * (1 - imp); ctx.lineCap = 'round';
+      const r0 = 50 + 120 * sai(imp), r1 = r0 + 70 * (1 - imp); ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke(); }
+    for (let i = 0; i < 26; i++) { const a = r() * Math.PI * 2, v = 160 + r() * 380, q = sai(imp); ctx.globalAlpha = 1 - imp;
+      estrela(ctx, Math.cos(a) * v * q, Math.sin(a) * v * q + 120 * imp * imp, 6 + r() * 10, i % 2 ? COR.ouro : '#fff'); }
+    ctx.globalAlpha = (1 - imp) * 0.8; ctx.strokeStyle = COR.ouro; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, 0, 40 + 160 * sai(imp), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+  manchete(ctx, [[['Entrou com o ', 'w'], ['WhatsApp.', 'b']]], 300, 92, T, 17.35, 20.7);
+  manchete(ctx, [[['Cada selo dá um', 'w']], [['motivo pra ', 'w'], ['voltar.', 'g']]], 270, 96, T, 21.45, 24.95);
+  const brancoP = (1 - progresso(T, 21.25, 0.18)) * (T >= 21.25 ? 0.55 : 0);
+  if (brancoP > 0) { ctx.fillStyle = 'rgba(255,255,255,' + brancoP + ')'; ctx.fillRect(0, 0, L, A); }
+  etiqueta(ctx, T < 21.3 ? 'PRÉVIA · trocar pelos prints reais' : 'PRÉVIA · nº de selos a confirmar');
+}
+
+function cena6CTA(ctx, t, d, T) {
+  fundoMarca(ctx, T, 1.3); particulas(ctx, T, 26, 8, COR.azul2, 0.5);
+  const pe = suave(progresso(t, 0, 0.7));
+  const ph = { x: mistura(540, 540, pe), y: mistura(1180, 1010, pe), s: mistura(1.52, 0.86, pe), rot: mistura(0, 0.06, pe), giro: 1 };
+  const est = estadoCartao(30);
+  celular(ctx, ph, (c) => telaCartao(c, T, { ...est, pLiga: 0 }));
+  // marca
+  const pm = progresso(t, 0.25, 0.5);
+  if (pm > 0) { ctx.save(); ctx.translate(540, 300); const e = salto(pm); ctx.scale(e, e); marcaVipMenu(ctx, 0, 0, 150); ctx.restore(); }
+  const pr = progresso(t, 0.55, 0.9);
+  if (pr > 0) { ctx.globalAlpha = limita(pr * 3); txt(ctx, 'por', 408, 420, 600, 34, '#b9c3d6', 'center'); logoRS2(ctx, 570, 420, 74, (1 - sai(pr)) * Math.PI * 4, true); ctx.globalAlpha = 1; }
+  // CTA
+  const pc = progresso(t, 1.0, 0.5);
+  if (pc > 0) {
+    const e = salto(pc); ctx.save(); ctx.translate(540, 1530); ctx.scale(e, e);
+    ctx.shadowColor = 'rgba(13,168,255,0.6)'; ctx.shadowBlur = 50;
+    rr(ctx, -400, -78, 800, 156, 78); ctx.fillStyle = gradAzul(ctx, -400, 0, 400, 0); ctx.fill(); ctx.shadowColor = 'transparent';
+    const bx = -500 + 1000 * ((T * 0.45) % 1); const g = ctx.createLinearGradient(bx - 80, 0, bx + 80, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.22)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); rr(ctx, -400, -78, 800, 156, 78); ctx.clip(); ctx.fillStyle = g; ctx.fillRect(-400, -78, 800, 156); ctx.restore();
+    txt(ctx, TXT.cta, -18, 2, 800, 58, '#fff', 'center');
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(318, -18); ctx.lineTo(342, 2); ctx.lineTo(318, 22); ctx.stroke();
+    ctx.restore();
+  }
+  const flash = 1 - progresso(t, 0, 0.2); if (flash > 0) { ctx.fillStyle = 'rgba(13,168,255,' + flash * 0.6 + ')'; ctx.fillRect(0, 0, L, A); }
+  etiqueta(ctx, 'PRÉVIA · logo e destino do CTA a confirmar', L / 2, 1700);
+}
+
+const CENAS = [
+  [0, 3, cena1Gancho],
+  [3, 5.4, cena2Marca],
+  [5.4, 10.4, cena3Cardapio],
+  [10.4, 17, cena4Pedido],
+  [17, 25, cena5Fidelidade],
+  [25, 30, cena6CTA],
+];
+const STORYBOARD = [0.9, 2.4, 4.1, 4.9, 6.2, 8.8, 10.2, 11.5, 12.7, 14.9, 18.6, 20.2, 21.35, 23.2, 26.0, 29.0];
+
+// ===================== DESENHO =====================
+const tela = document.getElementById('c');
+const ctx = tela.getContext('2d');
+let ESCALA = 1;
+function definirEscala(e) { ESCALA = e; tela.width = Math.round(L * e); tela.height = Math.round(A * e); }
+definirEscala(1);
+function desenha(t) {
+  ctx.setTransform(ESCALA, 0, 0, ESCALA, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = COR.fundo; ctx.fillRect(0, 0, L, A);
+  const cena = CENAS.find(([ini, fim]) => t >= ini && t < fim) || CENAS[CENAS.length - 1];
+  ctx.save(); cena[2](ctx, t - cena[0], cena[1] - cena[0], t); ctx.restore();
+}
+
+// ===================== SOM EM CÓDIGO =====================
+// Música e efeitos saem separados (trilhaPartes) para a mixagem com a narração; trilha() junta os dois.
+const EFEITOS = [
+  ['toque', 0.12], ['pop', 0.55], ['whoosh', 1.45, 0.35, 0.5], ['whoosh', 2.6, 0.45, 0.9],
+  ['riser', 3.0, 1.1], ['boom', 4.1], ['brilho', 4.2], ['pop', 4.78], ['whoosh', 5.2, 0.35, 0.8],
+  ['whoosh', 5.55, 0.6, 0.5], ['bip', 6.55], ['whoosh', 7.0, 0.6, 0.6], ['toque', 9.25], ['pop', 9.6],
+  ['toque', 10.75], ['pop', 11.2], ['toque', 11.85], ['whoosh', 12.25, 0.5, 0.7], ['giro', 12.85], ['ding', 13.85],
+  ['giro', 16.85], ['digita', 17.7, 1.1], ['toque', 19.05], ['whoosh', 19.4, 0.5, 0.5], ['whoosh', 20.75, 0.5, 0.9],
+  ['carimbo', 21.25], ['brilho', 21.35], ['whoosh', 25.0, 0.5, 0.8], ['riser', 25.5, 0.9], ['pop', 26.0], ['brilho', 26.1],
+];
+// [início, fim, notas do acorde em Hz, nota grave]
+const ACORDES = [
+  [0, 3, [220, 261.6, 329.6], 55], [3, 5.4, [174.6, 220, 261.6], 43.65], [5.4, 10.4, [261.6, 329.6, 392], 65.4],
+  [10.4, 17, [196, 246.9, 293.7], 49], [17, 20.75, [220, 261.6, 329.6], 55], [21.25, 25, [261.6, 329.6, 392, 493.9], 65.4],
+  [25, 30, [174.6, 220, 261.6, 329.6], 43.65],
+];
+const SILENCIO = [[20.75, 21.25], [29.2, 30]];
+
+async function renderAudio(quais) {
+  const sr = 48000, dur = CONFIG.duracao, ac = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
+  const mestre = ac.createGain(); mestre.gain.value = 0.8; mestre.connect(ac.destination);
+  const r = rng(77), ruido = ac.createBuffer(1, sr * 2, sr), dd = ruido.getChannelData(0);
+  for (let i = 0; i < dd.length; i++) dd[i] = r() * 2 - 1;
+  const quieto = (t) => SILENCIO.some(([a, b]) => t >= a && t < b);
+  const osc = (tipo, f, t0, t1, g0, destino = mestre, f1) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = tipo; o.frequency.setValueAtTime(f, t0);
+    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t1); g.gain.setValueAtTime(g0, t0); g.gain.exponentialRampToValueAtTime(0.0001, t1);
+    o.connect(g); g.connect(destino); o.start(t0); o.stop(t1 + 0.02); };
+  const som = (t0, dur, filtro, f0, f1, g0, forma = 'cai', q = 1) => { const s = ac.createBufferSource(); s.buffer = ruido; const fl = ac.createBiquadFilter(); fl.type = filtro; fl.Q.value = q;
+    fl.frequency.setValueAtTime(f0, t0); fl.frequency.exponentialRampToValueAtTime(f1, t0 + dur); const g = ac.createGain();
+    if (forma === 'cai') { g.gain.setValueAtTime(g0, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); }
+    else { g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(g0, t0 + dur * (forma === 'sobe' ? 0.95 : 0.6)); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); }
+    s.connect(fl); fl.connect(g); g.connect(mestre); s.start(t0, (t0 * 7.3) % 1); s.stop(t0 + dur + 0.02); };
+
+  if (quais.includes('musica')) {
+    const batida = 60 / CONFIG.bpm;
+    for (let i = 0; i * batida < dur - 0.6; i++) {
+      const t = i * batida; if (quieto(t)) continue;
+      const forte = t > 21.25 && t < 29 ? 1 : 0.8;
+      osc('sine', 120, t, t + 0.28, 0.8 * forte, mestre, 42);
+      som(t + batida / 2, 0.05, 'highpass', 7000, 9000, 0.12 * forte);
+      if (i % 2 === 1) som(t, 0.14, 'bandpass', 1800, 1200, 0.18 * forte, 'cai', 0.8);
+      const ac0 = ACORDES.find(([a, b]) => t >= a && t < b);
+      if (ac0) { osc('sawtooth', ac0[3] * 2, t, t + batida * 0.9, 0.05); osc('triangle', ac0[3], t, t + batida * 0.95, 0.22); }
+    }
+    ACORDES.forEach(([a, b, notas]) => notas.forEach((f, k) => { const o = ac.createOscillator(), g = ac.createGain(), fl = ac.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = (k % 2 ? 7 : -7); fl.type = 'lowpass'; fl.frequency.value = 1400;
+      g.gain.setValueAtTime(0.0001, a); g.gain.linearRampToValueAtTime(0.022, a + 0.3); g.gain.setValueAtTime(0.022, b - 0.2); g.gain.linearRampToValueAtTime(0.0001, b);
+      o.connect(fl); fl.connect(g); g.connect(mestre); o.start(a); o.stop(b + 0.05); }));
+    // arpejo final que fica no ar
+    [523.3, 659.3, 784, 1046.5].forEach((f, i) => osc('triangle', f, 26.1 + i * 0.12, 29.8, 0.07));
+  }
+  if (quais.includes('efeitos')) {
+    EFEITOS.forEach(([tipo, t, a, b]) => {
+      if (tipo === 'toque') { som(t, 0.04, 'highpass', 2500, 3500, 0.5); osc('sine', 900, t, t + 0.06, 0.25); }
+      if (tipo === 'pop') { osc('sine', 500, t, t + 0.12, 0.45, mestre, 1100); }
+      if (tipo === 'whoosh') som(t, a, 'bandpass', 400, 3500, 0.7 * (b || 0.6), 'meio', 1.2);
+      if (tipo === 'riser') som(t, a, 'bandpass', 250, 5000, 0.45, 'sobe', 2);
+      if (tipo === 'boom') { osc('sine', 140, t, t + 0.9, 1.0, mestre, 32); som(t, 0.35, 'lowpass', 900, 120, 0.8); }
+      if (tipo === 'brilho') [2637, 3136, 3951, 5274].forEach((f, i) => osc('sine', f, t + i * 0.05, t + i * 0.05 + 0.5, 0.08));
+      if (tipo === 'bip') { osc('sine', 1760, t, t + 0.09, 0.35); osc('sine', 2349, t + 0.11, t + 0.24, 0.35); }
+      if (tipo === 'giro') som(t, 0.6, 'bandpass', 800, 2500, 0.5, 'meio', 3);
+      if (tipo === 'ding') { osc('sine', 1318.5, t, t + 1.1, 0.35); osc('sine', 1975.5, t + 0.09, t + 1.3, 0.28); }
+      if (tipo === 'digita') for (let k = 0; k < 13; k++) som(t + k * a / 13, 0.025, 'highpass', 4000, 5000, 0.3);
+      if (tipo === 'carimbo') { osc('sine', 160, t, t + 1.0, 1.2, mestre, 35); som(t, 0.08, 'bandpass', 1400, 900, 1.0, 'cai', 1.5); som(t, 0.5, 'lowpass', 1200, 100, 0.7); }
+    });
+  }
+  return wavBase64(await ac.startRendering());
+}
+async function trilha() { return renderAudio(['musica', 'efeitos']); }
+async function trilhaPartes() { return { musica: await renderAudio(['musica']), efeitos: await renderAudio(['efeitos']) }; }
+
+function wavBase64(buf) {
+  const canais = buf.numberOfChannels, n = buf.length, bytes = 44 + n * canais * 2;
+  const v = new DataView(new ArrayBuffer(bytes));
+  const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, bytes - 8, true); s(8, 'WAVE'); s(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, canais, true); v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * canais * 2, true); v.setUint16(32, canais * 2, true); v.setUint16(34, 16, true);
+  s(36, 'data'); v.setUint32(40, n * canais * 2, true);
+  const dados = []; for (let c = 0; c < canais; c++) dados.push(buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < canais; c++) { v.setInt16(o, limita(dados[c][i], -1, 1) * 32767, true); o += 2; }
+  const u8 = new Uint8Array(v.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 32768) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 32768));
+  return btoa(bin);
+}
+
+// ===================== CONTROLE =====================
+window.CONFIG = CONFIG; window.STORYBOARD = STORYBOARD; window.trilha = trilha; window.trilhaPartes = trilhaPartes; window.definirEscala = definirEscala;
+window.seek = (t) => desenha(limita(t, 0, CONFIG.duracao - 1 / CONFIG.fps));
+if (new URLSearchParams(location.search).has('render')) {
+  desenha(0);
+} else {
+  let pausado = false, base = performance.now(), ultimo = 0;
+  tela.addEventListener('click', () => { pausado = !pausado; base = performance.now() - ultimo * 1000; });
+  (function laco(agora) {
+    if (!pausado) { ultimo = ((agora - base) / 1000) % CONFIG.duracao; desenha(ultimo); }
+    requestAnimationFrame(laco);
+  })(performance.now());
+}
+</script>
+</body>
+</html>
